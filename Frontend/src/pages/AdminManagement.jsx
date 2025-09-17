@@ -203,7 +203,7 @@ export default function AdminManagement() {
         <div className="mb-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Admin Management</h1>
+              <h1 className="text-3xl font-bold text-gray-900">JanSetu Admin Management</h1>
               <p className="text-gray-600 mt-1">
                 Manage and monitor administrative team members
                 {(searchTerm || roleFilter !== 'all' || departmentFilter !== 'all') && (
