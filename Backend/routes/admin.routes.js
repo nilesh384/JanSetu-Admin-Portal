@@ -1,9 +1,13 @@
 import express from "express";
-import { adminLogin, getAdminProfile, getAllAdmins } from "../controllers/admin.controllers.js";
+import { adminLogin, sendAdminOTP, verifyAdminOTP, getAdminProfile, getAllAdmins } from "../controllers/admin.controllers.js";
 
 const router = express.Router();
 
-// Admin login route
+// Admin OTP routes
+router.post("/send-otp", sendAdminOTP);
+router.post("/verify-otp", verifyAdminOTP);
+
+// Admin login route (legacy - kept for backward compatibility)
 router.post("/login", adminLogin);
 
 // Get admin profile by ID

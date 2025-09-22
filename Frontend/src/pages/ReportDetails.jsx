@@ -195,6 +195,8 @@ export default function ReportDetails() {
       if (result.success) {
         alert("Report resolved successfully!");
         setShowResolveModal(false);
+        // Set flag to refresh reports list when navigating back using sessionStorage
+        sessionStorage.setItem('shouldRefreshReports', 'true');
         // Refresh report data
         fetchReportDetails();
       } else {

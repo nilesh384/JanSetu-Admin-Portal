@@ -1,5 +1,6 @@
-import dbConnect from "../db/dbConnect.js";
+import { query, queryOne, transaction } from "../db/utils.js";
 import { uploadOnCloudinary } from "../services/cloudinary.js";
+import redisService from "../services/redis.js";
 
 // Helper to convert DB timestamp values to ISO strings (null-safe)
 const toISO = (val) => (val ? new Date(val).toISOString() : null);
@@ -111,18 +112,13 @@ const createReport = async (req, res) => {
 
         console.log('📝 Creating new report for user:', actualUserId);
 
-        const client = await dbConnect();
-
-        try {
+        const newReport = await transaction(async (client) => {
             // Check if user exists
             const userCheckQuery = `SELECT id FROM users WHERE id = $1`;
             const userExists = await client.query(userCheckQuery, [actualUserId]);
 
             if (userExists.rows.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'User not found'
-                });
+                throw new Error('User not found');
             }
 
             // Compute priority - use auto-priority if priority is 'auto' or missing
@@ -176,7 +172,7 @@ const createReport = async (req, res) => {
                 department || 'General'
             ]);
 
-            const newReport = result.rows[0];
+            const createdReport = result.rows[0];
 
             // Update user's total_reports count
             const updateUserQuery = `
@@ -187,43 +183,80 @@ const createReport = async (req, res) => {
             `;
             await client.query(updateUserQuery, [actualUserId]);
 
-            console.log('✅ Report created successfully:', newReport.id);
+            return createdReport;
+        });
 
-            // Map database fields to camelCase
-            const mappedReport = {
-                id: newReport.id,
-                userId: newReport.user_id,
-                title: newReport.title,
-                description: newReport.description,
-                category: newReport.category,
-                priority: newReport.priority,
-                mediaUrls: newReport.media_urls,
-                audioUrl: newReport.audio_url,
-                latitude: newReport.latitude,
-                longitude: newReport.longitude,
-                address: newReport.address,
-                department: newReport.department,
-                isResolved: newReport.is_resolved,
-                createdAt: toISO(newReport.created_at),
-                resolvedAt: toISO(newReport.resolved_at),
-                resolvedMediaUrls: newReport.resolved_media_urls,
-                resolutionNotes: newReport.resolution_note,
-                resolvedByAdminId: newReport.resolved_by_admin_id,
-                timeTakenToResolve: newReport.time_taken_to_resolve
-            };
+        console.log('✅ Report created successfully:', newReport.id);
 
-            res.status(201).json({
-                success: true,
-                message: 'Report created successfully',
-                report: mappedReport
-            });
-
-        } finally {
-            client.end();
+        // Invalidate relevant caches after creating a new report
+        try {
+            // Invalidate admin report caches since a new report was added
+            await redisService.invalidateAdminReports();
+            
+            // Invalidate user reports cache for this user
+            const userCachePattern = `reports:user_reports:${actualUserId}:*`;
+            const userKeys = await redisService.scanKeys(userCachePattern);
+            if (userKeys.length > 0) {
+                await redisService.del(userKeys);
+                console.log(`🗑️ Invalidated ${userKeys.length} user report cache entries`);
+            }
+            
+            // If location is provided, invalidate nearby reports cache
+            if (newReport.latitude && newReport.longitude) {
+                // Invalidate nearby reports (use a broader pattern to catch location-based caches)
+                const nearbyPattern = `reports:nearby_reports:*:*:*:*:*:${actualUserId}`;
+                const nearbyKeys = await redisService.scanKeys(nearbyPattern);
+                if (nearbyKeys.length > 0) {
+                    await redisService.del(nearbyKeys);
+                    console.log(`🗑️ Invalidated ${nearbyKeys.length} nearby report cache entries`);
+                }
+            }
+            
+            console.log('🧹 Cache invalidation completed for new report');
+        } catch (cacheError) {
+            console.warn('⚠️ Cache invalidation failed:', cacheError.message);
+            // Don't fail the request if cache invalidation fails
         }
+
+        // Map database fields to camelCase
+        const mappedReport = {
+            id: newReport.id,
+            userId: newReport.user_id,
+            title: newReport.title,
+            description: newReport.description,
+            category: newReport.category,
+            priority: newReport.priority,
+            mediaUrls: newReport.media_urls,
+            audioUrl: newReport.audio_url,
+            latitude: newReport.latitude,
+            longitude: newReport.longitude,
+            address: newReport.address,
+            department: newReport.department,
+            isResolved: newReport.is_resolved,
+            createdAt: toISO(newReport.created_at),
+            resolvedAt: toISO(newReport.resolved_at),
+            resolvedMediaUrls: newReport.resolved_media_urls,
+            resolutionNotes: newReport.resolution_note,
+            resolvedByAdminId: newReport.resolved_by_admin_id,
+            timeTakenToResolve: newReport.time_taken_to_resolve
+        };
+
+        res.status(201).json({
+            success: true,
+            message: 'Report created successfully',
+            report: mappedReport
+        });
 
     } catch (error) {
         console.error('❌ Error creating report:', error);
+        
+        if (error.message === 'User not found') {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        
         res.status(500).json({
             success: false,
             message: 'Server error while creating report',
@@ -247,85 +280,100 @@ const getUserReports = async (req, res) => {
 
         console.log('🔍 Fetching reports for user:', userId);
 
-        const client = await dbConnect();
-
-        try {
-            // Build dynamic query based on filters
-            let baseQuery = `
-                SELECT 
-                    r.*,
-                    admins.full_name as resolved_by,
-                    admins.role as resolved_by_role
-                FROM reports r
-                LEFT JOIN admins ON r.resolved_by_admin_id = admins.id
-                WHERE r.user_id = $1
-            `;
-            const queryParams = [userId];
-            let paramIndex = 2;
-
-            if (isResolved !== undefined) {
-                baseQuery += ` AND is_resolved = $${paramIndex}`;
-                queryParams.push(isResolved === 'true');
-                paramIndex++;
-            }
-
-            if (category) {
-                baseQuery += ` AND category = $${paramIndex}`;
-                queryParams.push(category);
-                paramIndex++;
-            }
-
-            if (priority) {
-                baseQuery += ` AND priority = $${paramIndex}`;
-                queryParams.push(priority);
-                paramIndex++;
-            }
-
-            baseQuery += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-            queryParams.push(parseInt(limit), parseInt(offset));
-
-            const result = await client.query(baseQuery, queryParams);
-
-            // Map all reports to camelCase
-            const mappedReports = result.rows.map(report => ({
-                id: report.id,
-                userId: report.user_id,
-                title: report.title,
-                description: report.description,
-                category: report.category,
-                priority: report.priority,
-                mediaUrls: report.media_urls,
-                audioUrl: report.audio_url,
-                latitude: report.latitude,
-                longitude: report.longitude,
-                address: report.address,
-                department: report.department,
-                isResolved: report.is_resolved,
-                createdAt: toISO(report.created_at),
-                resolvedAt: toISO(report.resolved_at),
-                resolvedMediaUrls: report.resolved_media_urls,
-                resolutionNotes: report.resolution_note,
-                resolvedByAdminId: report.resolved_by_admin_id,
-                resolvedBy: report.resolved_by,
-                resolvedByRole: report.resolved_by_role,
-                timeTakenToResolve: report.time_taken_to_resolve
-            }));
-
-            console.log(`✅ Found ${mappedReports.length} reports for user`);
-
-            res.status(200).json({
+        // Create cache key based on all parameters
+        const cacheKey = `user_reports:${userId}:${isResolved || 'all'}:${category || 'all'}:${priority || 'all'}:${limit}:${offset}`;
+        
+        // Try to get from Redis cache first
+        const cachedReports = await redisService.getCachedReports(cacheKey);
+        if (cachedReports) {
+            console.log('📦 Returning cached user reports');
+            return res.status(200).json({
                 success: true,
-                reports: mappedReports,
-                pagination: {
-                    limit: parseInt(limit),
-                    offset: parseInt(offset),
-                    total: mappedReports.length
-                }
+                reports: cachedReports.reports,
+                pagination: cachedReports.pagination,
+                cached: true
             });
-
-        } finally {
-            client.end();
         }
+
+        // Build dynamic query based on filters
+        let baseQuery = `
+            SELECT 
+                r.*,
+                admins.full_name as resolved_by,
+                admins.role as resolved_by_role
+            FROM reports r
+            LEFT JOIN admins ON r.resolved_by_admin_id = admins.id
+            WHERE r.user_id = $1
+        `;
+        const queryParams = [userId];
+        let paramIndex = 2;
+
+        if (isResolved !== undefined) {
+            baseQuery += ` AND is_resolved = $${paramIndex}`;
+            queryParams.push(isResolved === 'true');
+            paramIndex++;
+        }
+
+        if (category) {
+            baseQuery += ` AND category = $${paramIndex}`;
+            queryParams.push(category);
+            paramIndex++;
+        }
+
+        if (priority) {
+            baseQuery += ` AND priority = $${paramIndex}`;
+            queryParams.push(priority);
+            paramIndex++;
+        }
+
+        baseQuery += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        queryParams.push(parseInt(limit), parseInt(offset));
+
+        const result = await query(baseQuery, queryParams);
+
+        // Map all reports to camelCase
+        const mappedReports = result.rows.map(report => ({
+            id: report.id,
+            userId: report.user_id,
+            title: report.title,
+            description: report.description,
+            category: report.category,
+            priority: report.priority,
+            mediaUrls: report.media_urls,
+            audioUrl: report.audio_url,
+            latitude: report.latitude,
+            longitude: report.longitude,
+            address: report.address,
+            department: report.department,
+            isResolved: report.is_resolved,
+            createdAt: toISO(report.created_at),
+            resolvedAt: toISO(report.resolved_at),
+            resolvedMediaUrls: report.resolved_media_urls,
+            resolutionNotes: report.resolution_note,
+            resolvedByAdminId: report.resolved_by_admin_id,
+            resolvedBy: report.resolved_by,
+            resolvedByRole: report.resolved_by_role,
+            timeTakenToResolve: report.time_taken_to_resolve
+        }));
+
+        console.log(`✅ Found ${mappedReports.length} reports for user`);
+
+        const responseData = {
+            reports: mappedReports,
+            pagination: {
+                limit: parseInt(limit),
+                offset: parseInt(offset),
+                total: mappedReports.length
+            }
+        };
+
+        // Cache the results for 5 minutes
+        await redisService.cacheReports(cacheKey, responseData, 300);
+
+        res.status(200).json({
+            success: true,
+            ...responseData
+        });
 
     } catch (error) {
         console.error('❌ Error fetching user reports:', error);
@@ -352,79 +400,70 @@ const getReportById = async (req, res) => {
 
         console.log('🔍 Fetching report:', reportId);
 
-        const client = await dbConnect();
+        let reportQuery = `
+            SELECT
+                r.*,
+                users.full_name as user_name,
+                users.email as user_email,
+                users.phone_number as user_phone,
+                admins.full_name as resolved_by,
+                admins.role as resolved_by_role
+            FROM reports r
+            LEFT JOIN users ON r.user_id = users.id
+            LEFT JOIN admins ON r.resolved_by_admin_id = admins.id
+            WHERE r.id = $1
+        `;
+        const queryParams = [reportId];
 
-        try {
-            let query = `
-                SELECT
-                    r.*,
-                    users.full_name as user_name,
-                    users.email as user_email,
-                    users.phone_number as user_phone,
-                    admins.full_name as resolved_by,
-                    admins.role as resolved_by_role
-                FROM reports r
-                LEFT JOIN users ON r.user_id = users.id
-                LEFT JOIN admins ON r.resolved_by_admin_id = admins.id
-                WHERE r.id = $1
-            `;
-            const queryParams = [reportId];
-
-            // If userId is provided, ensure the report belongs to the user
-            if (userId) {
-                query += ` AND r.user_id = $2`;
-                queryParams.push(userId);
-            }
-
-            const result = await client.query(query, queryParams);
-
-            if (result.rows.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Report not found'
-                });
-            }
-
-            const report = result.rows[0];
-
-            // Map to camelCase
-            const mappedReport = {
-                id: report.id,
-                userId: report.user_id,
-                userName: report.user_name,
-                userEmail: report.user_email,
-                userPhone: report.user_phone,
-                title: report.title,
-                description: report.description,
-                category: report.category,
-                priority: report.priority,
-                mediaUrls: report.media_urls,
-                audioUrl: report.audio_url,
-                latitude: report.latitude,
-                longitude: report.longitude,
-                address: report.address,
-                department: report.department,
-                isResolved: report.is_resolved,
-                createdAt: toISO(report.created_at),
-                resolvedAt: toISO(report.resolved_at),
-                resolvedMediaUrls: report.resolved_media_urls,
-                resolutionNotes: report.resolution_note,
-                resolvedByAdminId: report.resolved_by_admin_id,
-                resolvedBy: report.resolved_by,
-                resolvedByRole: report.resolved_by_role,
-                timeTakenToResolve: report.time_taken_to_resolve
-            };
-
-            console.log('✅ Report found:', reportId);
-
-            res.status(200).json({
-                success: true,
-                report: mappedReport
-            });
-
-        } finally {
-            client.end();
+        // If userId is provided, ensure the report belongs to the user
+        if (userId) {
+            reportQuery += ` AND r.user_id = $2`;
+            queryParams.push(userId);
         }
+
+        const report = await queryOne(reportQuery, queryParams);
+
+        if (!report) {
+            return res.status(404).json({
+                success: false,
+                message: 'Report not found'
+            });
+        }
+
+        // Map to camelCase
+        const mappedReport = {
+            id: report.id,
+            userId: report.user_id,
+            userName: report.user_name,
+            userEmail: report.user_email,
+            userPhone: report.user_phone,
+            title: report.title,
+            description: report.description,
+            category: report.category,
+            priority: report.priority,
+            mediaUrls: report.media_urls,
+            audioUrl: report.audio_url,
+            latitude: report.latitude,
+            longitude: report.longitude,
+            address: report.address,
+            department: report.department,
+            isResolved: report.is_resolved,
+            createdAt: toISO(report.created_at),
+            resolvedAt: toISO(report.resolved_at),
+            resolvedMediaUrls: report.resolved_media_urls,
+            resolutionNotes: report.resolution_note,
+            resolvedByAdminId: report.resolved_by_admin_id,
+            resolvedBy: report.resolved_by,
+            resolvedByRole: report.resolved_by_role,
+            timeTakenToResolve: report.time_taken_to_resolve
+        };
+
+        console.log('✅ Report found:', reportId);
+
+        res.status(200).json({
+            success: true,
+            report: mappedReport
+        });
 
     } catch (error) {
         console.error('❌ Error fetching report:', error);
@@ -463,9 +502,7 @@ const updateReport = async (req, res) => {
 
         console.log('📝 Updating report:', reportId);
 
-        const client = await dbConnect();
-
-        try {
+        const updatedReport = await transaction(async (client) => {
             // Check if report exists and belongs to user (if userId provided)
             let checkQuery = `SELECT * FROM reports WHERE id = $1`;
             const checkParams = [reportId];
@@ -478,18 +515,12 @@ const updateReport = async (req, res) => {
             const existingReport = await client.query(checkQuery, checkParams);
 
             if (existingReport.rows.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Report not found or access denied'
-                });
+                throw new Error('Report not found or access denied');
             }
 
             // Check if report is already resolved
             if (existingReport.rows[0].is_resolved) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Cannot update a resolved report'
-                });
+                throw new Error('Cannot update a resolved report');
             }
 
             // Build dynamic update query
@@ -558,10 +589,7 @@ const updateReport = async (req, res) => {
             }
 
             if (updateFields.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'No fields to update'
-                });
+                throw new Error('No fields to update');
             }
 
             const updateQuery = `
@@ -574,45 +602,71 @@ const updateReport = async (req, res) => {
             updateValues.push(reportId);
 
             const result = await client.query(updateQuery, updateValues);
-            const updatedReport = result.rows[0];
+            return result.rows[0];
+        });
 
-            // Map to camelCase
-            const mappedReport = {
-                id: updatedReport.id,
-                userId: updatedReport.user_id,
-                title: updatedReport.title,
-                description: updatedReport.description,
-                category: updatedReport.category,
-                priority: updatedReport.priority,
-                mediaUrls: updatedReport.media_urls,
-                audioUrl: updatedReport.audio_url,
-                latitude: updatedReport.latitude,
-                longitude: updatedReport.longitude,
-                address: updatedReport.address,
-                department: updatedReport.department,
-                isResolved: updatedReport.is_resolved,
-                createdAt: toISO(updatedReport.created_at),
-                resolvedAt: toISO(updatedReport.resolved_at),
-                resolvedMediaUrls: updatedReport.resolved_media_urls,
-                resolutionNotes: updatedReport.resolution_note,
-                resolvedByAdminId: updatedReport.resolved_by_admin_id,
-                timeTakenToResolve: updatedReport.time_taken_to_resolve
-            };
+        // Map to camelCase
+        const mappedReport = {
+            id: updatedReport.id,
+            userId: updatedReport.user_id,
+            title: updatedReport.title,
+            description: updatedReport.description,
+            category: updatedReport.category,
+            priority: updatedReport.priority,
+            mediaUrls: updatedReport.media_urls,
+            audioUrl: updatedReport.audio_url,
+            latitude: updatedReport.latitude,
+            longitude: updatedReport.longitude,
+            address: updatedReport.address,
+            department: updatedReport.department,
+            isResolved: updatedReport.is_resolved,
+            createdAt: toISO(updatedReport.created_at),
+            resolvedAt: toISO(updatedReport.resolved_at),
+            resolvedMediaUrls: updatedReport.resolved_media_urls,
+            resolutionNotes: updatedReport.resolution_note,
+            resolvedByAdminId: updatedReport.resolved_by_admin_id,
+            timeTakenToResolve: updatedReport.time_taken_to_resolve
+        };
 
-            console.log('✅ Report updated successfully:', reportId);
+        console.log('✅ Report updated successfully:', reportId);
 
-            res.status(200).json({
-                success: true,
-                message: 'Report updated successfully',
-                report: mappedReport
-            });
-
-        } finally {
-            client.end();
+        // Invalidate admin report caches since report was updated
+        try {
+            await redisService.invalidateAdminReports();
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate admin report caches:', cacheError.message);
         }
+
+        res.status(200).json({
+            success: true,
+            message: 'Report updated successfully',
+            report: mappedReport
+        });
 
     } catch (error) {
         console.error('❌ Error updating report:', error);
+        
+        if (error.message === 'Report not found or access denied') {
+            return res.status(404).json({
+                success: false,
+                message: 'Report not found or access denied'
+            });
+        }
+        
+        if (error.message === 'Cannot update a resolved report') {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot update a resolved report'
+            });
+        }
+        
+        if (error.message === 'No fields to update') {
+            return res.status(400).json({
+                success: false,
+                message: 'No fields to update'
+            });
+        }
+        
         res.status(500).json({
             success: false,
             message: 'Server error while updating report',
@@ -663,26 +717,18 @@ const resolveReport = async (req, res) => {
 
         console.log('✅ Resolving report:', reportId, 'by admin:', adminId, 'with', resolvedPhotos.length, 'photos');
 
-        const client = await dbConnect();
-
-        try {
+        const resolvedReport = await transaction(async (client) => {
             // Verify admin exists and is active
             const adminCheckQuery = `SELECT id, role FROM admins WHERE id = $1 AND is_active = true`;
             const adminResult = await client.query(adminCheckQuery, [adminId]);
 
             if (adminResult.rows.length === 0) {
-                return res.status(403).json({
-                    success: false,
-                    message: "Admin not found or inactive"
-                });
+                throw new Error('Admin not found or inactive');
             }
 
             const admin = adminResult.rows[0];
             if (admin.role.toLowerCase() !== adminRole.toLowerCase()) {
-                return res.status(403).json({
-                    success: false,
-                    message: "Admin role mismatch"
-                });
+                throw new Error('Admin role mismatch');
             }
 
             // Check if report exists
@@ -690,17 +736,11 @@ const resolveReport = async (req, res) => {
             const existingReport = await client.query(reportCheckQuery, [reportId]);
 
             if (existingReport.rows.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Report not found'
-                });
+                throw new Error('Report not found');
             }
 
             if (existingReport.rows[0].is_resolved) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Report is already resolved'
-                });
+                throw new Error('Report is already resolved');
             }
 
             // Upload photos to Cloudinary if any
@@ -776,7 +816,7 @@ const resolveReport = async (req, res) => {
                 resolutionNotes || null,
                 adminId
             ]);
-            const resolvedReport = result.rows[0];
+            const resolved = result.rows[0];
 
             // Update user's resolved_reports count
             const updateUserQuery = `
@@ -785,61 +825,97 @@ const resolveReport = async (req, res) => {
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = $1
             `;
-            await client.query(updateUserQuery, [resolvedReport.user_id]);
+            await client.query(updateUserQuery, [resolved.user_id]);
 
-            // Map to camelCase
-            const mappedReport = {
-                id: resolvedReport.id,
-                userId: resolvedReport.user_id,
-                title: resolvedReport.title,
-                description: resolvedReport.description,
-                category: resolvedReport.category,
-                priority: resolvedReport.priority,
-                mediaUrls: resolvedReport.media_urls,
-                audioUrl: resolvedReport.audio_url,
-                latitude: resolvedReport.latitude,
-                longitude: resolvedReport.longitude,
-                address: resolvedReport.address,
-                department: resolvedReport.department,
-                isResolved: resolvedReport.is_resolved,
-                createdAt: toISO(resolvedReport.created_at),
-                resolvedAt: toISO(resolvedReport.resolved_at),
-                resolvedMediaUrls: resolvedReport.resolved_media_urls,
-                resolutionNotes: resolvedReport.resolution_note,
-                resolvedByAdminId: resolvedReport.resolved_by_admin_id,
-                timeTakenToResolve: resolvedReport.time_taken_to_resolve
-            };
+            return { resolved, uploadedPhotosCount: resolvedMediaUrls.length };
+        });
 
-            console.log('✅ Report resolved successfully by admin:', adminId);
-
-            res.status(200).json({
-                success: true,
-                message: 'Report marked as resolved',
-                report: mappedReport,
-                uploadedPhotos: resolvedMediaUrls.length
-            });
-
-        } finally {
-            // Final cleanup - ensure all uploaded files are removed
-            if (resolvedPhotos && resolvedPhotos.length > 0) {
-                console.log('🧹 Final cleanup check for resolved photos...');
-                const fs = await import('fs');
-                for (const photoPath of resolvedPhotos) {
-                    try {
-                        if (fs.existsSync(photoPath)) {
-                            fs.unlinkSync(photoPath);
-                            console.log('🧹 Final cleanup removed:', photoPath);
-                        }
-                    } catch (finalCleanupError) {
-                        console.error('❌ Final cleanup failed for:', photoPath, finalCleanupError);
+        // Final cleanup - ensure all uploaded files are removed
+        if (resolvedPhotos && resolvedPhotos.length > 0) {
+            console.log('🧹 Final cleanup check for resolved photos...');
+            const fs = await import('fs');
+            for (const photoPath of resolvedPhotos) {
+                try {
+                    if (fs.existsSync(photoPath)) {
+                        fs.unlinkSync(photoPath);
+                        console.log('🧹 Final cleanup removed:', photoPath);
                     }
+                } catch (finalCleanupError) {
+                    console.error('❌ Final cleanup failed for:', photoPath, finalCleanupError);
                 }
             }
-            client.release();
         }
+
+        // Map to camelCase
+        const mappedReport = {
+            id: resolvedReport.resolved.id,
+            userId: resolvedReport.resolved.user_id,
+            title: resolvedReport.resolved.title,
+            description: resolvedReport.resolved.description,
+            category: resolvedReport.resolved.category,
+            priority: resolvedReport.resolved.priority,
+            mediaUrls: resolvedReport.resolved.media_urls,
+            audioUrl: resolvedReport.resolved.audio_url,
+            latitude: resolvedReport.resolved.latitude,
+            longitude: resolvedReport.resolved.longitude,
+            address: resolvedReport.resolved.address,
+            department: resolvedReport.resolved.department,
+            isResolved: resolvedReport.resolved.is_resolved,
+            createdAt: toISO(resolvedReport.resolved.created_at),
+            resolvedAt: toISO(resolvedReport.resolved.resolved_at),
+            resolvedMediaUrls: resolvedReport.resolved.resolved_media_urls,
+            resolutionNotes: resolvedReport.resolved.resolution_note,
+            resolvedByAdminId: resolvedReport.resolved.resolved_by_admin_id,
+            timeTakenToResolve: resolvedReport.resolved.time_taken_to_resolve
+        };
+
+        console.log('✅ Report resolved successfully by admin:', adminId);
+
+        // Invalidate admin report caches since report status changed
+        try {
+            await redisService.invalidateAdminReports();
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate admin report caches:', cacheError.message);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Report marked as resolved',
+            report: mappedReport,
+            uploadedPhotos: resolvedReport.uploadedPhotosCount
+        });
 
     } catch (error) {
         console.error('❌ Error resolving report:', error);
+        
+        if (error.message === 'Admin not found or inactive') {
+            return res.status(403).json({
+                success: false,
+                message: "Admin not found or inactive"
+            });
+        }
+        
+        if (error.message === 'Admin role mismatch') {
+            return res.status(403).json({
+                success: false,
+                message: "Admin role mismatch"
+            });
+        }
+        
+        if (error.message === 'Report not found') {
+            return res.status(404).json({
+                success: false,
+                message: 'Report not found'
+            });
+        }
+        
+        if (error.message === 'Report is already resolved') {
+            return res.status(400).json({
+                success: false,
+                message: 'Report is already resolved'
+            });
+        }
+        
         res.status(500).json({
             success: false,
             message: 'Server error while resolving report',
@@ -863,34 +939,25 @@ const deleteReport = async (req, res) => {
 
         console.log('🗑️ Deleting report:', reportId, userId ? `by user: ${userId}` : '(admin delete)');
 
-        const client = await dbConnect();
-
-        try {
+        const deleteResult = await transaction(async (client) => {
             // First, get the report to check ownership and get user_id
             const getReportQuery = `SELECT * FROM reports WHERE id = $1`;
             const reportResult = await client.query(getReportQuery, [reportId]);
 
             if (reportResult.rows.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Report not found'
-                });
+                throw new Error('Report not found');
             }
 
             const report = reportResult.rows[0];
 
             // If userId is provided, check if user owns the report
             if (userId && report.user_id !== userId) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Access denied: You can only delete your own reports'
-                });
+                throw new Error('Access denied: You can only delete your own reports');
             }
 
             // Delete the report
             const deleteQuery = `DELETE FROM reports WHERE id = $1 RETURNING *`;
             const result = await client.query(deleteQuery, [reportId]);
-            const deletedReport = result.rows[0];
 
             // Update user's total_reports count
             const updateUserQuery = `
@@ -905,20 +972,41 @@ const deleteReport = async (req, res) => {
             `;
             await client.query(updateUserQuery, [report.user_id, report.is_resolved]);
 
-            console.log('✅ Report deleted successfully:', reportId);
+            return { reportId, userId: report.user_id, wasResolved: report.is_resolved };
+        });
 
-            res.status(200).json({
-                success: true,
-                message: 'Report deleted successfully',
-                deletedReportId: reportId
-            });
+        console.log('✅ Report deleted successfully:', reportId);
 
-        } finally {
-            client.end();
+        // Invalidate admin report caches since report was deleted
+        try {
+            await redisService.invalidateAdminReports();
+        } catch (cacheError) {
+            console.warn('⚠️ Failed to invalidate admin report caches:', cacheError.message);
         }
+
+        res.status(200).json({
+            success: true,
+            message: 'Report deleted successfully',
+            deletedReportId: reportId
+        });
 
     } catch (error) {
         console.error('❌ Error deleting report:', error);
+        
+        if (error.message === 'Report not found') {
+            return res.status(404).json({
+                success: false,
+                message: 'Report not found'
+            });
+        }
+        
+        if (error.message === 'Access denied: You can only delete your own reports') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied: You can only delete your own reports'
+            });
+        }
+        
         res.status(500).json({
             success: false,
             message: 'Server error while deleting report',
@@ -931,6 +1019,7 @@ const deleteReport = async (req, res) => {
 const getNearbyReports = async (req, res) => {
     try {
         const { latitude, longitude, radius = 10, limit = 20, offset = 0 } = req.query;
+        const currentUserId = req.userId;
 
         if (!latitude || !longitude) {
             return res.status(400).json({
@@ -941,79 +1030,103 @@ const getNearbyReports = async (req, res) => {
 
         console.log(`🌍 Fetching reports within ${radius}km of (${latitude}, ${longitude})`);
 
-        const client = await dbConnect();
-
-        try {
-            // Using the haversine formula to calculate distance
-            const nearbyQuery = `
-                SELECT r.*, u.full_name as user_name,
-                    admins.full_name as resolved_by,
-                    admins.role as resolved_by_role,
-                    (6371 * acos(cos(radians($1)) * cos(radians(r.latitude)) * 
-                    cos(radians(r.longitude) - radians($2)) + 
-                    sin(radians($1)) * sin(radians(r.latitude)))) AS distance
-                FROM reports r
-                JOIN users u ON r.user_id = u.id
-                LEFT JOIN admins ON r.resolved_by_admin_id = admins.id
-                WHERE r.latitude IS NOT NULL 
-                    AND r.longitude IS NOT NULL
-                    AND (6371 * acos(cos(radians($1)) * cos(radians(r.latitude)) * 
-                         cos(radians(r.longitude) - radians($2)) + 
-                         sin(radians($1)) * sin(radians(r.latitude)))) <= $3
-                ORDER BY distance ASC, r.created_at DESC
-                LIMIT $4 OFFSET $5
-            `;
-
-            const result = await client.query(nearbyQuery, [
-                parseFloat(latitude),
-                parseFloat(longitude),
-                parseFloat(radius),
-                parseInt(limit),
-                parseInt(offset)
-            ]);
-
-            // Map reports to camelCase
-            const mappedReports = result.rows.map(report => ({
-                id: report.id,
-                userId: report.user_id,
-                userName: report.user_name,
-                title: report.title,
-                description: report.description,
-                category: report.category,
-                priority: report.priority,
-                mediaUrls: report.media_urls,
-                audioUrl: report.audio_url,
-                latitude: report.latitude,
-                longitude: report.longitude,
-                address: report.address,
-                department: report.department,
-                isResolved: report.is_resolved,
-                createdAt: toISO(report.created_at),
-                resolvedAt: toISO(report.resolved_at),
-                resolvedMediaUrls: report.resolved_media_urls,
-                resolutionNotes: report.resolution_note,
-                resolvedByAdminId: report.resolved_by_admin_id,
-                resolvedBy: report.resolved_by,
-                resolvedByRole: report.resolved_by_role,
-                timeTakenToResolve: report.time_taken_to_resolve,
-                distance: parseFloat(report.distance).toFixed(2)
-            }));
-
-            console.log(`✅ Found ${mappedReports.length} nearby reports`);
-
-            res.status(200).json({
+        // Create cache key based on location and parameters (round coordinates to reduce cache variations)
+        const roundedLat = parseFloat(latitude).toFixed(3);
+        const roundedLng = parseFloat(longitude).toFixed(3);
+        const cacheKey = `nearby_reports:${roundedLat}:${roundedLng}:${radius}:${limit}:${offset}:${currentUserId}`;
+        
+        // Try to get from Redis cache first
+        const cachedReports = await redisService.getCachedReports(cacheKey);
+        if (cachedReports) {
+            console.log('📦 Returning cached nearby reports');
+            return res.status(200).json({
                 success: true,
-                reports: mappedReports,
-                pagination: {
-                    limit: parseInt(limit),
-                    offset: parseInt(offset),
-                    radius: parseFloat(radius)
-                }
+                reports: cachedReports.reports,
+                pagination: cachedReports.pagination,
+                cached: true
             });
-
-        } finally {
-            client.end();
         }
+
+        // Using the haversine formula to calculate distance
+        const nearbyQuery = `
+            SELECT r.*, u.full_name as user_name,
+                admins.full_name as resolved_by,
+                admins.role as resolved_by_role,
+                (6371 * acos(cos(radians($1)) * cos(radians(r.latitude)) * 
+                cos(radians(r.longitude) - radians($2)) + 
+                sin(radians($1)) * sin(radians(r.latitude)))) AS distance
+            FROM reports r
+            JOIN users u ON r.user_id = u.id
+            LEFT JOIN admins ON r.resolved_by_admin_id = admins.id
+            WHERE r.latitude IS NOT NULL 
+                AND r.longitude IS NOT NULL
+                AND r.user_id != $6
+                AND (6371 * acos(cos(radians($1)) * cos(radians(r.latitude)) * 
+                     cos(radians(r.longitude) - radians($2)) + 
+                     sin(radians($1)) * sin(radians(r.latitude)))) <= $3
+            ORDER BY distance ASC, r.created_at DESC
+            LIMIT $4 OFFSET $5 
+        `;
+
+        const result = await query(nearbyQuery, [
+            parseFloat(latitude),
+            parseFloat(longitude),
+            parseFloat(radius),
+            parseInt(limit),
+            parseInt(offset),
+            currentUserId
+        ]);
+
+        // Map reports to camelCase
+        const mappedReports = result.rows.map(report => ({
+            id: report.id,
+            userId: report.user_id,
+            userName: report.user_name,
+            title: report.title,
+            description: report.description,
+            category: report.category,
+            priority: report.priority,
+            mediaUrls: report.media_urls,
+            audioUrl: report.audio_url,
+            latitude: report.latitude,
+            longitude: report.longitude,
+            address: report.address,
+            department: report.department,
+            isResolved: report.is_resolved,
+            createdAt: toISO(report.created_at),
+            resolvedAt: toISO(report.resolved_at),
+            resolvedMediaUrls: report.resolved_media_urls,
+            resolutionNotes: report.resolution_note,
+            resolvedByAdminId: report.resolved_by_admin_id,
+            resolvedBy: report.resolved_by,
+            resolvedByRole: report.resolved_by_role,
+            timeTakenToResolve: report.time_taken_to_resolve,
+            distance: parseFloat(report.distance).toFixed(2)
+        }));
+
+        console.log(`✅ Found ${mappedReports.length} nearby reports`);
+
+        const responseData = {
+            reports: mappedReports,
+            pagination: {
+                limit: parseInt(limit),
+                offset: parseInt(offset),
+                total: mappedReports.length
+            },
+            location: {
+                latitude: parseFloat(latitude),
+                longitude: parseFloat(longitude),
+                radius: parseFloat(radius)
+            }
+        };
+
+        // Cache the results for 3 minutes (shorter cache for location-based data)
+        await redisService.cacheReports(cacheKey, responseData, 180);
+
+        res.status(200).json({
+            success: true,
+            ...responseData
+        });
 
     } catch (error) {
         console.error('❌ Error fetching nearby reports:', error);
@@ -1039,48 +1152,40 @@ const getUserReportsStats = async (req, res) => {
 
         console.log('📊 Fetching report statistics for user:', userId);
 
-        const client = await dbConnect();
+        const statsQuery = `
+            SELECT 
+                COUNT(*) as total_reports,
+                COUNT(CASE WHEN is_resolved = true THEN 1 END) as resolved_reports,
+                COUNT(CASE WHEN is_resolved = false THEN 1 END) as pending_reports,
+                COUNT(CASE WHEN priority = 'critical' THEN 1 END) as critical_reports,
+                COUNT(CASE WHEN priority = 'high' THEN 1 END) as high_priority_reports,
+                COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as reports_last_30_days,
+                AVG(CASE WHEN is_resolved = true THEN 
+                    EXTRACT(EPOCH FROM (resolved_at - created_at))/3600 
+                END) as avg_resolution_time_hours
+            FROM reports 
+            WHERE user_id = $1
+        `;
 
-        try {
-            const statsQuery = `
-                SELECT 
-                    COUNT(*) as total_reports,
-                    COUNT(CASE WHEN is_resolved = true THEN 1 END) as resolved_reports,
-                    COUNT(CASE WHEN is_resolved = false THEN 1 END) as pending_reports,
-                    COUNT(CASE WHEN priority = 'critical' THEN 1 END) as critical_reports,
-                    COUNT(CASE WHEN priority = 'high' THEN 1 END) as high_priority_reports,
-                    COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as reports_last_30_days,
-                    AVG(CASE WHEN is_resolved = true THEN 
-                        EXTRACT(EPOCH FROM (resolved_at - created_at))/3600 
-                    END) as avg_resolution_time_hours
-                FROM reports 
-                WHERE user_id = $1
-            `;
+        const stats = await queryOne(statsQuery, [userId]);
 
-            const result = await client.query(statsQuery, [userId]);
-            const stats = result.rows[0];
+        const mappedStats = {
+            totalReports: parseInt(stats.total_reports),
+            resolvedReports: parseInt(stats.resolved_reports),
+            pendingReports: parseInt(stats.pending_reports),
+            criticalReports: parseInt(stats.critical_reports),
+            highPriorityReports: parseInt(stats.high_priority_reports),
+            reportsLast30Days: parseInt(stats.reports_last_30_days),
+            avgResolutionTimeHours: stats.avg_resolution_time_hours ? 
+                parseFloat(stats.avg_resolution_time_hours).toFixed(2) : null
+        };
 
-            const mappedStats = {
-                totalReports: parseInt(stats.total_reports),
-                resolvedReports: parseInt(stats.resolved_reports),
-                pendingReports: parseInt(stats.pending_reports),
-                criticalReports: parseInt(stats.critical_reports),
-                highPriorityReports: parseInt(stats.high_priority_reports),
-                reportsLast30Days: parseInt(stats.reports_last_30_days),
-                avgResolutionTimeHours: stats.avg_resolution_time_hours ? 
-                    parseFloat(stats.avg_resolution_time_hours).toFixed(2) : null
-            };
+        console.log('✅ Statistics fetched successfully');
 
-            console.log('✅ Statistics fetched successfully');
-
-            res.status(200).json({
-                success: true,
-                stats: mappedStats
-            });
-
-        } finally {
-            client.end();
-        }
+        res.status(200).json({
+            success: true,
+            stats: mappedStats
+        });
 
     } catch (error) {
         console.error('❌ Error fetching report statistics:', error);
@@ -1219,11 +1324,8 @@ const uploadSingleMedia = async (req, res) => {
 };
 
 const getCommunityStats = async (req, res) => {
-    let client;
     try {
         console.log('📊 Fetching community statistics');
-
-        client = await dbConnect();
 
         const statsQuery = `
             SELECT
@@ -1250,8 +1352,7 @@ const getCommunityStats = async (req, res) => {
             FROM reports
         `;
 
-        const result = await client.query(statsQuery);
-        const stats = result.rows[0];
+        const stats = await queryOne(statsQuery);
 
         // Format the response to match the frontend expectations
         const formattedStats = {
@@ -1272,24 +1373,11 @@ const getCommunityStats = async (req, res) => {
     } catch (error) {
         console.error('❌ Error fetching community statistics:', error);
 
-        // Only send response if headers haven't been sent yet
-        if (!res.headersSent) {
-            res.status(500).json({
-                success: false,
-                message: 'Server error while fetching community statistics',
-                error: error.message
-            });
-        }
-    } finally {
-        // Properly close the client connection
-        if (client) {
-            try {
-                await client.end();
-                console.log('🔌 Database connection closed');
-            } catch (closeError) {
-                console.error('❌ Error closing database connection:', closeError);
-            }
-        }
+        res.status(500).json({
+            success: false,
+            message: 'Server error while fetching community statistics',
+            error: error.message
+        });
     }
 };
 
@@ -1315,214 +1403,223 @@ const getAdminReports = async (req, res) => {
 
         console.log('🔍 Fetching reports for admin:', adminId);
 
-        const client = await dbConnect();
+        // First, get the admin's role and department
+        const adminQuery = `
+            SELECT role, department, is_active
+            FROM admins
+            WHERE id = $1 AND is_active = true
+        `;
+        const admin = await queryOne(adminQuery, [adminId]);
 
-        try {
-            // First, get the admin's role and department
-            const adminQuery = `
-                SELECT role, department, is_active
-                FROM admins
-                WHERE id = $1 AND is_active = true
-            `;
-            const adminResult = await client.query(adminQuery, [adminId]);
+        if (!admin) {
+            return res.status(404).json({
+                success: false,
+                message: "Admin not found or inactive"
+            });
+        }
 
-            if (adminResult.rows.length === 0) {
-                return res.status(404).json({
+        const adminRole = admin.role.toLowerCase();
+        const adminDepartment = admin.department;
+
+        console.log('👤 Admin role:', adminRole, 'Department:', adminDepartment);
+
+        // Create cache key based on admin info and all parameters
+        const cacheKey = `admin_reports:${adminId}:${adminRole}:${adminDepartment || 'none'}:${isResolved || 'all'}:${category || 'all'}:${priority || 'all'}:${department || 'all'}:${status || 'all'}:${limit}:${offset}`;
+        
+        // Try to get from Redis cache first
+        const cachedReports = await redisService.getCachedReports(cacheKey);
+        if (cachedReports) {
+            console.log('📦 Returning cached admin reports');
+            return res.status(200).json({
+                success: true,
+                reports: cachedReports.reports,
+                pagination: cachedReports.pagination,
+                adminInfo: cachedReports.adminInfo,
+                message: cachedReports.message,
+                cached: true
+            });
+        }
+
+        // Build dynamic query based on role and filters
+        let baseQuery = `
+            SELECT
+                r.*,
+                u.full_name as user_name,
+                u.phone_number as user_phone
+            FROM reports r
+            LEFT JOIN users u ON r.user_id = u.id
+            WHERE 1=1
+        `;
+        const queryParams = [];
+        let paramIndex = 1;
+
+        // Apply role-based filtering
+        if (adminRole === 'viewer') {
+            // Viewers can only see reports from their department
+            if (!adminDepartment) {
+                return res.status(403).json({
                     success: false,
-                    message: "Admin not found or inactive"
+                    message: "Viewer admin must have a department assigned"
                 });
             }
-
-            const admin = adminResult.rows[0];
-            const adminRole = admin.role.toLowerCase();
-            const adminDepartment = admin.department;
-
-            console.log('👤 Admin role:', adminRole, 'Department:', adminDepartment);
-
-            // Build dynamic query based on role and filters
-            let baseQuery = `
-                SELECT
-                    r.*,
-                    u.full_name as user_name,
-                    u.phone_number as user_phone
-                FROM reports r
-                LEFT JOIN users u ON r.user_id = u.id
-                WHERE 1=1
-            `;
-            const queryParams = [];
-            let paramIndex = 1;
-
-            // Apply role-based filtering
-            if (adminRole === 'viewer') {
-                // Viewers can only see reports from their department
-                if (!adminDepartment) {
-                    return res.status(403).json({
-                        success: false,
-                        message: "Viewer admin must have a department assigned"
-                    });
-                }
-                baseQuery += ` AND LOWER(r.department) = LOWER($${paramIndex})`;
-                queryParams.push(adminDepartment);
-                paramIndex++;
-            }
-            // Admins and super_admins can see all reports (no additional WHERE clause needed)
-
-            // Apply additional filters
-            if (isResolved !== undefined) {
-                baseQuery += ` AND r.is_resolved = $${paramIndex}`;
-                queryParams.push(isResolved === 'true');
-                paramIndex++;
-            }
-
-            if (category) {
-                baseQuery += ` AND r.category = $${paramIndex}`;
-                queryParams.push(category);
-                paramIndex++;
-            }
-
-            if (priority) {
-                baseQuery += ` AND r.priority = $${paramIndex}`;
-                queryParams.push(priority);
-                paramIndex++;
-            }
-
-            if (department && adminRole !== 'viewer') {
-                // Only allow department filtering for non-viewer roles
-                baseQuery += ` AND LOWER(r.department) = LOWER($${paramIndex})`;
-                queryParams.push(department);
-                paramIndex++;
-            }
-
-            if (status) {
-                baseQuery += ` AND r.status = $${paramIndex}`;
-                queryParams.push(status);
-                paramIndex++;
-            }
-
-            // Add ordering and pagination
-            baseQuery += ` ORDER BY r.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-            queryParams.push(parseInt(limit), parseInt(offset));
-
-            console.log('📋 Final query:', baseQuery);
-            console.log('📋 Query params:', queryParams);
-
-            const result = await client.query(baseQuery, queryParams);
-
-            // Get total count for pagination - build separate count query
-            let countQuery = `
-                SELECT COUNT(*) as total
-                FROM reports r
-                LEFT JOIN users u ON r.user_id = u.id
-                WHERE 1=1
-            `;
-            const countParams = [];
-
-            // Apply the same filters for count query
-            let countParamIndex = 1;
-
-            // Apply role-based filtering for count
-            if (adminRole === 'viewer') {
-                if (!adminDepartment) {
-                    return res.status(403).json({
-                        success: false,
-                        message: "Viewer admin must have a department assigned"
-                    });
-                }
-                countQuery += ` AND LOWER(r.department) = LOWER($${countParamIndex})`;
-                countParams.push(adminDepartment);
-                countParamIndex++;
-            }
-
-            // Apply additional filters for count
-            if (isResolved !== undefined) {
-                countQuery += ` AND r.is_resolved = $${countParamIndex}`;
-                countParams.push(isResolved === 'true');
-                countParamIndex++;
-            }
-
-            if (category) {
-                countQuery += ` AND r.category = $${countParamIndex}`;
-                countParams.push(category);
-                countParamIndex++;
-            }
-
-            if (priority) {
-                countQuery += ` AND r.priority = $${countParamIndex}`;
-                countParams.push(priority);
-                countParamIndex++;
-            }
-
-            if (department && adminRole !== 'viewer') {
-                countQuery += ` AND LOWER(r.department) = LOWER($${countParamIndex})`;
-                countParams.push(department);
-                countParamIndex++;
-            }
-
-            if (status) {
-                countQuery += ` AND r.status = $${countParamIndex}`;
-                countParams.push(status);
-                countParamIndex++;
-            }
-
-            const countResult = await client.query(countQuery, countParams);
-            const totalCount = parseInt(countResult.rows[0]?.total || 0);
-
-            // Map all reports to camelCase
-            const mappedReports = result.rows.map(report => ({
-                id: report.id,
-                userId: report.user_id,
-                userName: report.user_name,
-                userPhone: report.user_phone,
-                title: report.title,
-                description: report.description,
-                category: report.category,
-                priority: report.priority,
-                mediaUrls: report.media_urls,
-                audioUrl: report.audio_url,
-                latitude: report.latitude,
-                longitude: report.longitude,
-                address: report.address,
-                department: report.department,
-                isResolved: report.is_resolved,
-                resolvedBy: report.resolved_by,
-                resolutionNote: report.resolution_note,
-                resolvedMediaUrls: report.resolved_media_urls,
-                timeTakenToResolve: report.time_taken_to_resolve,
-                status: report.status,
-                createdAt: toISO(report.created_at),
-                updatedAt: toISO(report.updated_at)
-            }));
-
-            console.log(`✅ Found ${mappedReports.length} reports for admin ${adminId} (role: ${adminRole})`);
-
-            res.status(200).json({
-                success: true,
-                reports: mappedReports,
-                pagination: {
-                    total: totalCount,
-                    limit: parseInt(limit),
-                    offset: parseInt(offset),
-                    hasMore: (parseInt(offset) + parseInt(limit)) < totalCount
-                },
-                adminInfo: {
-                    role: adminRole,
-                    department: adminDepartment,
-                    canViewAllDepartments: adminRole !== 'viewer'
-                },
-                message: `Reports fetched successfully for ${adminRole}`
-            });
-
-        } finally {
-            // Properly close the client connection
-            if (client) {
-                try {
-                    await client.end();
-                    console.log('🔌 Database connection closed');
-                } catch (closeError) {
-                    console.error('❌ Error closing database connection:', closeError);
-                }
-            }
+            baseQuery += ` AND LOWER(r.department) = LOWER($${paramIndex})`;
+            queryParams.push(adminDepartment);
+            paramIndex++;
         }
+        // Admins and super_admins can see all reports (no additional WHERE clause needed)
+
+        // Apply additional filters
+        if (isResolved !== undefined) {
+            baseQuery += ` AND r.is_resolved = $${paramIndex}`;
+            queryParams.push(isResolved === 'true');
+            paramIndex++;
+        }
+
+        if (category) {
+            baseQuery += ` AND r.category = $${paramIndex}`;
+            queryParams.push(category);
+            paramIndex++;
+        }
+
+        if (priority) {
+            baseQuery += ` AND r.priority = $${paramIndex}`;
+            queryParams.push(priority);
+            paramIndex++;
+        }
+
+        if (department && adminRole !== 'viewer') {
+            // Only allow department filtering for non-viewer roles
+            baseQuery += ` AND LOWER(r.department) = LOWER($${paramIndex})`;
+            queryParams.push(department);
+            paramIndex++;
+        }
+
+        if (status) {
+            baseQuery += ` AND r.status = $${paramIndex}`;
+            queryParams.push(status);
+            paramIndex++;
+        }
+
+        // Add ordering and pagination
+        baseQuery += ` ORDER BY r.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        queryParams.push(parseInt(limit), parseInt(offset));
+
+        console.log('📋 Final query:', baseQuery);
+        console.log('📋 Query params:', queryParams);
+
+        const result = await query(baseQuery, queryParams);
+
+        // Get total count for pagination - build separate count query
+        let countQuery = `
+            SELECT COUNT(*) as total
+            FROM reports r
+            LEFT JOIN users u ON r.user_id = u.id
+            WHERE 1=1
+        `;
+        const countParams = [];
+
+        // Apply the same filters for count query
+        let countParamIndex = 1;
+
+        // Apply role-based filtering for count
+        if (adminRole === 'viewer') {
+            if (!adminDepartment) {
+                return res.status(403).json({
+                    success: false,
+                    message: "Viewer admin must have a department assigned"
+                });
+            }
+            countQuery += ` AND LOWER(r.department) = LOWER($${countParamIndex})`;
+            countParams.push(adminDepartment);
+            countParamIndex++;
+        }
+
+        // Apply additional filters for count
+        if (isResolved !== undefined) {
+            countQuery += ` AND r.is_resolved = $${countParamIndex}`;
+            countParams.push(isResolved === 'true');
+            countParamIndex++;
+        }
+
+        if (category) {
+            countQuery += ` AND r.category = $${countParamIndex}`;
+            countParams.push(category);
+            countParamIndex++;
+        }
+
+        if (priority) {
+            countQuery += ` AND r.priority = $${countParamIndex}`;
+            countParams.push(priority);
+            countParamIndex++;
+        }
+
+        if (department && adminRole !== 'viewer') {
+            countQuery += ` AND LOWER(r.department) = LOWER($${countParamIndex})`;
+            countParams.push(department);
+            countParamIndex++;
+        }
+
+        if (status) {
+            countQuery += ` AND r.status = $${countParamIndex}`;
+            countParams.push(status);
+            countParamIndex++;
+        }
+
+        const countResult = await query(countQuery, countParams);
+        const totalCount = parseInt(countResult.rows[0]?.total || 0);
+
+        // Map all reports to camelCase
+        const mappedReports = result.rows.map(report => ({
+            id: report.id,
+            userId: report.user_id,
+            userName: report.user_name,
+            userPhone: report.user_phone,
+            title: report.title,
+            description: report.description,
+            category: report.category,
+            priority: report.priority,
+            mediaUrls: report.media_urls,
+            audioUrl: report.audio_url,
+            latitude: report.latitude,
+            longitude: report.longitude,
+            address: report.address,
+            department: report.department,
+            isResolved: report.is_resolved,
+            resolvedBy: report.resolved_by,
+            resolutionNote: report.resolution_note,
+            resolvedMediaUrls: report.resolved_media_urls,
+            timeTakenToResolve: report.time_taken_to_resolve,
+            status: report.status,
+            createdAt: toISO(report.created_at),
+            updatedAt: toISO(report.updated_at)
+        }));
+
+        console.log(`✅ Found ${mappedReports.length} reports for admin ${adminId} (role: ${adminRole})`);
+
+        const responseData = {
+            reports: mappedReports,
+            pagination: {
+                total: totalCount,
+                limit: parseInt(limit),
+                offset: parseInt(offset),
+                hasMore: (parseInt(offset) + parseInt(limit)) < totalCount
+            },
+            adminInfo: {
+                role: adminRole,
+                department: adminDepartment,
+                canViewAllDepartments: adminRole !== 'viewer'
+            },
+            message: `Reports fetched successfully for ${adminRole}`
+        };
+
+        // Cache the results for 10 minutes (longer cache for admin data)
+        await redisService.cacheReports(cacheKey, responseData, 600);
+
+        res.status(200).json({
+            success: true,
+            ...responseData
+        });
+
     } catch (error) {
         console.error('❌ Error fetching admin reports:', error);
         res.status(500).json({

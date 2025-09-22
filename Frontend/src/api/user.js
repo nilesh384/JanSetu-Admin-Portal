@@ -3,7 +3,48 @@ import { data } from "react-router-dom";
 
 const API_BASE_URL = "http://localhost:4000/api/v1"; // Adjust this to your backend URL
 
-// Admin login function
+// Send OTP to admin email
+export const sendAdminOTP = async (email) => {
+    try {
+        const response = await axios.post(`${API_BASE_URL}/admin/send-otp`, {
+            email: email.toLowerCase()
+        });
+
+        return {
+            success: true,
+            data: response.data.data,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to send OTP"
+        };
+    }
+};
+
+// Verify admin OTP and complete login
+export const verifyAdminOTP = async (email, otp) => {
+    try {
+        const response = await axios.post(`${API_BASE_URL}/admin/verify-otp`, {
+            email: email.toLowerCase(),
+            otp: otp
+        });
+
+        return {
+            success: true,
+            data: response.data.data,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "OTP verification failed"
+        };
+    }
+};
+
+// Admin login function (legacy - kept for backward compatibility)
 export const adminLogin = async (email) => {
     try {
         const response = await axios.post(`${API_BASE_URL}/admin/login`, {

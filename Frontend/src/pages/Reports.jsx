@@ -13,6 +13,8 @@ export default function Dashboard({ department }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("createdAt");
   const [sortOrder, setSortOrder] = useState("desc");
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [lastScrollPosition, setLastScrollPosition] = useState(0);
   const [filters, setFilters] = useState({
     isResolved: undefined,
     category: "",
@@ -33,13 +35,78 @@ export default function Dashboard({ department }) {
     }
   }, [isAuthenticated, adminData, filters]);
 
+  // Restore state from sessionStorage on mount
+  useEffect(() => {
+    const savedState = sessionStorage.getItem('reportsPageState');
+    if (savedState) {
+      try {
+        const state = JSON.parse(savedState);
+        setSearchQuery(state.searchQuery || "");
+        setStatusFilter(state.statusFilter || "all");
+        setSortBy(state.sortBy || "createdAt");
+        setSortOrder(state.sortOrder || "desc");
+        setLastScrollPosition(state.scrollPosition || 0);
+        sessionStorage.removeItem('reportsPageState');
+      } catch (err) {
+        console.error('Error restoring state:', err);
+      }
+    }
+  }, []);
+
+  // Handle page visibility and refresh flag with sessionStorage
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && adminData) {
+        // Check if we should refresh the reports
+        const shouldRefresh = sessionStorage.getItem('shouldRefreshReports');
+        if (shouldRefresh === 'true') {
+          sessionStorage.removeItem('shouldRefreshReports');
+          setRefreshTrigger(prev => prev + 1);
+        }
+      }
+    };
+
+    // Also check immediately when component mounts/becomes visible
+    if (adminData) {
+      const shouldRefresh = sessionStorage.getItem('shouldRefreshReports');
+      if (shouldRefresh === 'true') {
+        sessionStorage.removeItem('shouldRefreshReports');
+        setRefreshTrigger(prev => prev + 1);
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [adminData]);
+
+  // State-based refresh trigger
+  useEffect(() => {
+    if (refreshTrigger > 0 && adminData) {
+      fetchReports();
+    }
+  }, [refreshTrigger, adminData]);
+
+  // Restore scroll position after data loads
+  useEffect(() => {
+    if (!loading && lastScrollPosition > 0) {
+      setTimeout(() => {
+        window.scrollTo(0, lastScrollPosition);
+        setLastScrollPosition(0);
+      }, 100);
+    }
+  }, [loading, lastScrollPosition]);
+
   const fetchReports = async () => {
     try {
       setLoading(true);
       const result = await getAdminReports(adminData.id, filters);
 
       if (result.success) {
-        setReports(result.data || []);
+        setReports(result.reports || result.data || []);
+        setError("");
       } else {
         setError(result.message);
       }
@@ -52,6 +119,15 @@ export default function Dashboard({ department }) {
   };
 
   const handleReportClick = (report) => {
+    // Save current state before navigation
+    const currentState = {
+      searchQuery,
+      statusFilter,
+      sortBy,
+      sortOrder,
+      scrollPosition: window.scrollY
+    };
+    sessionStorage.setItem('reportsPageState', JSON.stringify(currentState));
     navigate(`/report/${report.id}`);
   };
 
@@ -196,7 +272,17 @@ export default function Dashboard({ department }) {
             <div>
               <h1 className="text-3xl font-bold text-slate-900">Reports Dashboard</h1>
             </div>
-            <div className="flex gap-4">
+            <div className="flex gap-4 items-center">
+              {/* Refresh Button */}
+              <button
+                onClick={() => setRefreshTrigger(prev => prev + 1)}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Refresh reports"
+              >
+                <span className={`text-sm ${loading ? 'animate-spin' : ''}`}>🔄</span>
+                {loading ? 'Refreshing...' : 'Refresh'}
+              </button>
               <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-slate-200">
                 <div className="text-xs text-slate-500 uppercase tracking-wide">Total</div>
                 <div className="text-2xl font-bold text-slate-900">{totalReports}</div>

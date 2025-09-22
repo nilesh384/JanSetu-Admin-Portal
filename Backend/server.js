@@ -1,5 +1,6 @@
 import app from './app.js';
 import dotenv from 'dotenv';
+import redisService from './services/redis.js';
 
 dotenv.config({path: './.env'});
 
@@ -18,13 +19,21 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Graceful shutdown handlers
-const gracefulShutdown = () => {
+const gracefulShutdown = async () => {
   console.log('\n🛑 Shutting down gracefully...');
+  
+  // Close Redis connection
+  await redisService.disconnect();
+  
   // Close server and database connections
-  server.close(() => {
-    console.log('✅ HTTP server closed');
+  if (global.server) {
+    global.server.close(() => {
+      console.log('✅ HTTP server closed');
+      process.exit(0);
+    });
+  } else {
     process.exit(0);
-  });
+  }
 };
 
 process.on('SIGTERM', gracefulShutdown);
@@ -33,10 +42,15 @@ process.on('SIGINT', gracefulShutdown);
 // Start server without requiring database connection at startup
 const startServer = async () => {
   try {
+    // Initialize Redis connection
+    console.log('🔄 Initializing Redis...');
+    await redisService.connect();
+    
     const server = app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Health check available at: http://localhost:${PORT}/api/v1/health`);
       console.log(`🗄️ Database status at: http://localhost:${PORT}/api/v1/health/db`);
+      console.log(`🔴 Redis status: ${redisService.isAvailable() ? 'Connected' : 'Disconnected'}`);
     });
 
     // Handle server errors

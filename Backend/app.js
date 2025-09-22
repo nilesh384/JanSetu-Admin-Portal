@@ -1,8 +1,23 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { initializeDatabase, closeDatabase } from "./db/utils.js";
 
 const app = express();
+
+// Initialize database connection pool
+const initApp = async () => {
+  try {
+    await initializeDatabase();
+    console.log('🚀 Database initialized successfully');
+  } catch (error) {
+    console.error('💥 Failed to initialize database:', error);
+    process.exit(1);
+  }
+};
+
+// Initialize database when app starts
+initApp();
 
 app.use(cors({
   origin: '*',
@@ -111,5 +126,23 @@ app.use((err, req, res, next) => {
         stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
     });
 });
+
+// Graceful shutdown handling
+const gracefulShutdown = async (signal) => {
+    console.log(`🛑 Received ${signal}. Starting graceful shutdown...`);
+    
+    try {
+        await closeDatabase();
+        console.log('✅ Database connections closed');
+        process.exit(0);
+    } catch (error) {
+        console.error('❌ Error during graceful shutdown:', error);
+        process.exit(1);
+    }
+};
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 export default app;
