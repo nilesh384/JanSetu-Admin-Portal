@@ -90,9 +90,13 @@ export const getAllAdmins = async (requesterRole, requestedRoles = null) => {
             requestedRoles: requestedRoles
         });
 
+        // Backend already returns data in camelCase format (isActive, fullName, etc.)
+        // No need to map field names anymore
+        const mappedData = response.data.data || [];
+
         return {
             success: true,
-            data: response.data.data,
+            data: mappedData,
             meta: response.data.meta,
             message: response.data.message
         };
@@ -223,3 +227,158 @@ export const getAllReportCoords = async (adminId, limit = 1000) => {
     }
 };
 
+// Admin Management Functions
+
+// Create new admin (Super Admin only)
+export const createAdmin = async (requesterRole, adminData) => {
+    try {
+        const response = await axios.post(`${API_BASE_URL}/admin/create`, {
+            requesterRole,
+            ...adminData
+        });
+
+        return {
+            success: true,
+            data: response.data.data,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to create admin"
+        };
+    }
+};
+
+// Update admin details (Super Admin only)
+export const updateAdmin = async (adminId, requesterRole, updates) => {
+    try {
+        const response = await axios.put(`${API_BASE_URL}/admin/${adminId}`, {
+            requesterRole,
+            ...updates
+        });
+
+        return {
+            success: true,
+            data: response.data.data,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to update admin"
+        };
+    }
+};
+
+// Delete admin (Super Admin only)
+export const deleteAdmin = async (adminId, requesterRole, requesterId) => {
+    try {
+        const response = await axios.delete(`${API_BASE_URL}/admin/${adminId}`, {
+            data: {
+                requesterRole,
+                requesterId
+            }
+        });
+
+        return {
+            success: true,
+            data: response.data.data,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to delete admin"
+        };
+    }
+};
+
+// Restore deleted admin (Super Admin only)
+export const restoreAdmin = async (adminId, requesterRole) => {
+    try {
+        const response = await axios.put(`${API_BASE_URL}/admin/${adminId}/restore`, {
+            requesterRole
+        });
+
+        return {
+            success: true,
+            data: response.data.data,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to restore admin"
+        };
+    }
+};
+
+// Get admin activity logs (Super Admin only)
+export const getAdminActivityLogs = async (requesterRole, filters = {}) => {
+    try {
+        const queryParams = new URLSearchParams();
+        
+        if (filters.adminId) queryParams.append('adminId', filters.adminId);
+        if (filters.limit) queryParams.append('limit', filters.limit);
+        if (filters.offset) queryParams.append('offset', filters.offset);
+
+        const url = `${API_BASE_URL}/admin/activity-logs?${queryParams.toString()}`;
+        
+        const response = await axios.post(url, {
+            requesterRole
+        });
+
+        return {
+            success: true,
+            data: response.data.data,
+            pagination: response.data.pagination,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to fetch admin activity logs"
+        };
+    }
+};
+
+// Get social statistics for a specific report
+export const getReportSocialStats = async (reportId) => {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/social/reports/${reportId}/stats`);
+
+        return {
+            success: true,
+            data: response.data.stats,
+            message: response.data.message || "Report social stats fetched successfully"
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to fetch report social stats"
+        };
+    }
+};
+
+// Get comments for a social post
+export const getPostComments = async (postId, page = 1, limit = 20) => {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/social/posts/${postId}/comments`, {
+            params: { page, limit }
+        });
+
+        return {
+            success: true,
+            data: response.data.comments,
+            totalCount: response.data.totalCount,
+            hasMore: response.data.hasMore,
+            message: response.data.message || "Comments fetched successfully"
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to fetch comments"
+        };
+    }
+};

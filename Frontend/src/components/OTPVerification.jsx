@@ -2,14 +2,15 @@ import { useState, useEffect, useRef } from "react";
 
 const OTPVerification = ({ 
   email, 
-  onVerifyOTP, 
-  onResendOTP, 
+  onVerify, 
+  onResend, 
   onBack, 
   loading = false,
   error = "",
-  expiresIn = 600 
+  otpData = null 
 }) => {
   const [otp, setOtp] = useState(Array(6).fill(""));
+  const expiresIn = otpData?.expiresIn || 600;
   const [timeLeft, setTimeLeft] = useState(expiresIn);
   const [canResend, setCanResend] = useState(false);
   const inputsRef = useRef([]);
@@ -22,6 +23,12 @@ const OTPVerification = ({
       setCanResend(true);
     }
   }, [timeLeft]);
+
+  useEffect(() => {
+    if (otpData?.expiresIn) {
+      setTimeLeft(otpData.expiresIn);
+    }
+  }, [otpData]);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -43,6 +50,13 @@ const OTPVerification = ({
   const handleKeyDown = (e, index) => {
     if (e.key === "Backspace" && !otp[index] && index > 0) {
       inputsRef.current[index - 1]?.focus();
+    } else if (e.key === "Enter") {
+      const code = otp.join("");
+      if (code.length === 6) {
+        onVerify(code);
+      } else {
+        alert("Please enter all 6 digits before verifying.");
+      }
     }
   };
 
@@ -50,7 +64,10 @@ const OTPVerification = ({
     e.preventDefault();
     const code = otp.join("");
     if (code.length === 6) {
-      onVerifyOTP(code);
+      onVerify(code);
+    } else {
+      // Optionally set an error or show a message
+      alert("Please enter all 6 digits before verifying.");
     }
   };
 
@@ -59,7 +76,7 @@ const OTPVerification = ({
     setCanResend(false);
     setOtp(Array(6).fill(""));
     inputsRef.current[0]?.focus();
-    onResendOTP();
+    onResend();
   };
 
   return (
@@ -128,10 +145,10 @@ const OTPVerification = ({
         <div className="space-y-3">
           <button
             type="submit"
-            disabled={loading || otp.join("").length !== 6}
-            className="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-lg shadow hover:from-blue-700 hover:to-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={loading}
+            className="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-lg shadow hover:from-blue-700 hover:to-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed pointer-events-auto"
           >
-            {loading ? "Verifying..." : "Verify OTP"}
+            {loading ? "Verifying..." : otp.join("").length === 6 ? "Verify OTP" : "Enter all 6 digits"}
           </button>
 
           <button

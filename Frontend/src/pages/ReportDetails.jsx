@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import { getReportById, resolveReport } from "../api/user";
+import { getReportById, resolveReport, getReportSocialStats, getPostComments } from "../api/user";
 import { useAuth } from "../components/AuthContext";
 import 'leaflet/dist/leaflet.css';
 
@@ -12,6 +12,15 @@ export default function ReportDetails() {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  
+  // Social stats state
+  const [socialStats, setSocialStats] = useState(null);
+  const [loadingSocialStats, setLoadingSocialStats] = useState(false);
+  
+  // Comments state
+  const [comments, setComments] = useState([]);
+  const [showComments, setShowComments] = useState(false);
+  const [loadingComments, setLoadingComments] = useState(false);
   
   // Resolution modal state
   const [showResolveModal, setShowResolveModal] = useState(false);
@@ -38,6 +47,8 @@ export default function ReportDetails() {
 
       if (result.success) {
         setReport(result.data);
+        // Fetch social stats after successful report fetch
+        fetchSocialStats();
       } else {
         setError(result.message || "Report not found");
       }
@@ -48,6 +59,77 @@ export default function ReportDetails() {
       setLoading(false);
     }
   };
+
+  const fetchSocialStats = async () => {
+    try {
+      setLoadingSocialStats(true);
+      const result = await getReportSocialStats(id);
+
+      if (result.success) {
+        setSocialStats(result.data);
+      } else {
+        console.log("No social stats found for this report:", result.message);
+        // Set default stats if no social post exists
+        setSocialStats({
+          reportId: id,
+          hasSocialPost: false,
+          upvotes: 0,
+          downvotes: 0,
+          totalScore: 0,
+          commentCount: 0,
+          shareCount: 0,
+          viewCount: 0
+        });
+      }
+    } catch (err) {
+      console.error("Social stats fetch error:", err);
+      // Set default stats on error
+      setSocialStats({
+        reportId: id,
+        hasSocialPost: false,
+        upvotes: 0,
+        downvotes: 0,
+        totalScore: 0,
+        commentCount: 0,
+        shareCount: 0,
+        viewCount: 0
+      });
+    } finally {
+      setLoadingSocialStats(false);
+    }
+  };
+
+  const fetchComments = async () => {
+    if (!socialStats?.socialPostId) {
+      console.log("No social post ID available for fetching comments");
+      return;
+    }
+
+    try {
+      setLoadingComments(true);
+      const result = await getPostComments(socialStats.socialPostId);
+
+      if (result.success) {
+        setComments(result.data || []);
+      } else {
+        console.log("Failed to fetch comments:", result.message);
+        setComments([]);
+      }
+    } catch (err) {
+      console.error("Comments fetch error:", err);
+      setComments([]);
+    } finally {
+      setLoadingComments(false);
+    }
+  };
+
+  const handleViewComments = () => {
+    setShowComments(!showComments);
+    if (!showComments && comments.length === 0) {
+      fetchComments();
+    }
+  };
+
 
   // Helper functions
   const formatDate = (dateString) => {
@@ -536,6 +618,210 @@ export default function ReportDetails() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Community Engagement Stats */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-slate-900">Community Engagement</h3>
+                {loadingSocialStats && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
+                )}
+              </div>
+              
+              {socialStats ? (
+                socialStats.hasSocialPost ? (
+                  <div className="space-y-4">
+                    {/* Voting Stats */}
+                    <div className="bg-slate-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-slate-700">Community Score</span>
+                        <span className={`text-lg font-bold ${socialStats.totalScore >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {socialStats.totalScore > 0 ? '+' : ''}{socialStats.totalScore}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                            <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">{socialStats.upvotes}</p>
+                            <p className="text-xs text-slate-500">Upvotes</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                            <svg className="w-4 h-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">{socialStats.downvotes}</p>
+                            <p className="text-xs text-slate-500">Downvotes</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Engagement Stats */}
+                    <div className="space-y-3">
+                      <button 
+                        onClick={handleViewComments}
+                        className="w-full flex justify-between items-center p-2 rounded-lg hover:bg-slate-100 transition-colors group"
+                        disabled={!socialStats.socialPostId}
+                      >
+                        <span className="text-slate-600 flex items-center gap-2 group-hover:text-indigo-600">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                          Comments
+                          {socialStats.commentCount > 0 && (
+                            <span className="text-xs text-slate-500">
+                              ({socialStats.commentCount} {socialStats.commentCount === 1 ? 'comment' : 'comments'})
+                            </span>
+                          )}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-900 font-medium group-hover:text-indigo-600">{socialStats.commentCount}</span>
+                          <svg className={`w-4 h-4 text-slate-400 transition-transform ${showComments ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </button>
+                      
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-600 flex items-center gap-2">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          Views
+                        </span>
+                        <span className="text-slate-900 font-medium">{socialStats.viewCount}</span>
+                      </div>
+
+                      {socialStats.shareCount > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-600 flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+                            </svg>
+                            Shares
+                          </span>
+                          <span className="text-slate-900 font-medium">{socialStats.shareCount}</span>
+                        </div>
+                      )}
+
+                      {(socialStats.isTrending || socialStats.isFeatured) && (
+                        <div className="pt-3 border-t border-slate-200">
+                          <div className="flex flex-wrap gap-2">
+                            {socialStats.isTrending && (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800">
+                                🔥 Trending
+                              </span>
+                            )}
+                            {socialStats.isFeatured && (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
+                                ⭐ Featured
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Comments Section */}
+                    {showComments && (
+                      <div className="border-t border-slate-200 pt-4">
+                        <h4 className="font-medium text-slate-900 mb-3">Comments</h4>
+                        
+                        {loadingComments ? (
+                          <div className="text-center py-4">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 mx-auto"></div>
+                            <p className="text-sm text-slate-600 mt-2">Loading comments...</p>
+                          </div>
+                        ) : comments.length > 0 ? (
+                          <div className="space-y-3 max-h-64 overflow-y-auto">
+                            {comments.map((comment) => (
+                              <div key={comment.id} className="bg-slate-50 rounded-lg p-3">
+                                <div className="flex gap-3">
+                                  <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center flex-shrink-0">
+                                    <span className="text-sm font-medium text-slate-600">
+                                      {comment.isAnonymous ? '?' : (comment.user?.fullName?.charAt(0)?.toUpperCase() || 'U')}
+                                    </span>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="font-medium text-slate-900 text-sm">
+                                        {comment.isAnonymous ? 'Anonymous' : (comment.user?.fullName || 'User')}
+                                      </span>
+                                      <span className="text-xs text-slate-500">
+                                        {formatDate(comment.createdAt)}
+                                      </span>
+                                    </div>
+                                    <p className="text-slate-700 text-sm leading-relaxed break-words">
+                                      {comment.content}
+                                    </p>
+                                    {(comment.upvotes > 0 || comment.downvotes > 0) && (
+                                      <div className="flex items-center gap-3 mt-2">
+                                        {comment.upvotes > 0 && (
+                                          <span className="flex items-center gap-1 text-xs text-green-600">
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                            </svg>
+                                            {comment.upvotes}
+                                          </span>
+                                        )}
+                                        {comment.downvotes > 0 && (
+                                          <span className="flex items-center gap-1 text-xs text-red-600">
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                            {comment.downvotes}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-6 text-slate-500">
+                            <svg className="w-8 h-8 mx-auto mb-2 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            <p className="text-sm">No comments yet</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-slate-500">No community engagement yet</p>
+                    <p className="text-xs text-slate-400 mt-1">This report hasn't been shared with the community</p>
+                  </div>
+                )
+              ) : (
+                <div className="text-center py-6">
+                  <div className="animate-pulse">
+                    <div className="w-12 h-12 bg-slate-200 rounded-full mx-auto mb-3"></div>
+                    <div className="h-4 bg-slate-200 rounded w-24 mx-auto"></div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Location Map */}

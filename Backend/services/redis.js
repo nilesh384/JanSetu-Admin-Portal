@@ -11,24 +11,20 @@ class RedisService {
 
   async connect() {
     try {
+      // Correct configuration for node-redis v4
       this.client = redis.createClient({
-        url: process.env.REDIS_URL || 'redis://localhost:6379',
+        url: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
         socket: {
           connectTimeout: 60000,
-          lazyConnect: true,
-        },
-        retry_strategy: (options) => {
-          if (options.error && options.error.code === 'ECONNREFUSED') {
-            console.error('Redis connection refused');
-            return new Error('Redis connection refused');
+          // The modern reconnectStrategy replaces the old retry_strategy
+          reconnectStrategy: (retries) => {
+            if (retries > 10) {
+              console.error('❌ Too many retries, Redis connection terminated.');
+              return new Error('Too many retries.');
+            }
+            // Reconnect every 1 second
+            return 1000;
           }
-          if (options.total_retry_time > 1000 * 60 * 60) {
-            return new Error('Retry time exhausted');
-          }
-          if (options.attempt > 10) {
-            return undefined;
-          }
-          return Math.min(options.attempt * 100, 3000);
         }
       });
 
@@ -43,7 +39,7 @@ class RedisService {
       });
 
       this.client.on('error', (err) => {
-        console.error('❌ Redis connection error:', err.message);
+        console.error('❌ Redis client error:', err.message);
         this.isConnected = false;
       });
 
@@ -52,15 +48,14 @@ class RedisService {
         this.isConnected = false;
       });
 
-      this.client.on('reconnecting', () => {
-        console.log('🔄 Redis reconnecting...');
-      });
+      // NOTE: The 'reconnecting' event does not exist in v4.
+      // The reconnectStrategy and error handlers are used instead.
 
       // Connect to Redis
       await this.client.connect();
       
     } catch (error) {
-      console.error('❌ Failed to connect to Redis:', error.message);
+      console.error('❌ Failed to connect to Redis initially:', error.message);
       this.isConnected = false;
     }
   }
@@ -276,6 +271,21 @@ class RedisService {
 
   async invalidateSession(sessionId) {
     return await this.del(`session:${sessionId}`);
+  }
+
+  // Generic pattern invalidation method
+  async invalidatePattern(pattern) {
+    try {
+      const keys = await this.scanKeys(pattern);
+      if (keys.length > 0) {
+        await this.del(keys);
+        console.log(`🗑️ Invalidated ${keys.length} cache entries matching pattern: ${pattern}`);
+      }
+      return keys.length;
+    } catch (error) {
+      console.warn(`⚠️ Failed to invalidate pattern ${pattern}:`, error.message);
+      return 0;
+    }
   }
 }
 

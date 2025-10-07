@@ -5,6 +5,9 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
 import AdminManagement from "./pages/AdminManagement";
+import EditAdmin from "./pages/EditAdmin";
+import CreateAdmin from "./pages/CreateAdmin";
+import ActivityLogs from "./pages/ActivityLogs";
 import Reports from "./pages/Reports";
 import ReportDetails from "./pages/ReportDetails";
 import MapOverview from "./pages/MapOverview";
@@ -40,6 +43,36 @@ function App() {
               <PrivateRoute>
                 <Layout>
                   <AdminManagement />
+                </Layout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/edit-admin/:id"
+            element={
+              <PrivateRoute>
+                <Layout>
+                  <EditAdmin />
+                </Layout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/create-admin"
+            element={
+              <PrivateRoute>
+                <Layout>
+                  <CreateAdmin />
+                </Layout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/activity-logs"
+            element={
+              <PrivateRoute>
+                <Layout>
+                  <ActivityLogs />
                 </Layout>
               </PrivateRoute>
             }

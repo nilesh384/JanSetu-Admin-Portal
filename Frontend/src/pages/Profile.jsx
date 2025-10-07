@@ -89,7 +89,7 @@ export default function Profile() {
         
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-lg overflow-hidden mb-8">
-          <div className="flex items-center justify-between p-6 bg-gradient-to-r from-blue-600 to-purple-600">
+          <div className="flex items-center justify-between p-6 bg-gradient-to-r from-orange-400 to-orange-600">
             <div className="flex items-center space-x-4">
               <div className="bg-white rounded-full h-16 w-16 flex items-center justify-center">
                 <User className="w-10 h-10 text-blue-600" />

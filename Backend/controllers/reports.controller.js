@@ -188,10 +188,51 @@ const createReport = async (req, res) => {
 
         console.log('✅ Report created successfully:', newReport.id);
 
+        // Auto-create social post for the report (make it public by default)
+        try {
+            console.log('📱 Auto-creating social post for report:', newReport.id);
+            
+            // Create social post entry directly without importing (to avoid circular dependency)
+            const socialPostQuery = `
+                INSERT INTO social_posts (
+                    report_id,
+                    user_id,
+                    is_public,
+                    is_anonymous,
+                    upvotes,
+                    downvotes,
+                    total_score,
+                    comment_count,
+                    share_count,
+                    view_count,
+                    is_trending,
+                    is_featured,
+                    created_at,
+                    updated_at
+                ) VALUES ($1, $2, $3, $4, 0, 0, 0, 0, 0, 0, false, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                RETURNING id
+            `;
+            
+            const socialPostResult = await query(socialPostQuery, [
+                newReport.id,
+                actualUserId,
+                true,  // is_public = true by default
+                false  // is_anonymous = false by default
+            ]);
+
+            console.log('✅ Social post auto-created:', socialPostResult.rows[0]?.id);
+        } catch (socialError) {
+            console.warn('⚠️ Auto-creation of social post failed (report still created):', socialError.message);
+            // Don't fail the report creation if social post creation fails
+        }
+
         // Invalidate relevant caches after creating a new report
         try {
             // Invalidate admin report caches since a new report was added
             await redisService.invalidateAdminReports();
+            
+            // Also invalidate social posts cache since we created a social post
+            await redisService.invalidatePattern('social_posts:*');
             
             // Invalidate user reports cache for this user
             const userCachePattern = `reports:user_reports:${actualUserId}:*`;
