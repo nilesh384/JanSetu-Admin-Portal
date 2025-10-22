@@ -16,7 +16,7 @@ export default function ActivityLogs() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [hasMore, setHasMore] = useState(false);
-  const logsPerPage = 20;
+  const logsPerPage = 10;
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -75,10 +75,22 @@ export default function ActivityLogs() {
       const result = await getAdminActivityLogs(currentAdmin?.role, filters);
 
       if (result.success) {
-        setLogs(result.data || []);
+        const fetchedLogs = result.data || [];
+        setLogs(fetchedLogs);
+        
         if (result.pagination) {
-          setTotalPages(Math.ceil(result.pagination.total / logsPerPage));
+          const calculatedTotalPages = Math.ceil(result.pagination.total / logsPerPage);
+          setTotalPages(calculatedTotalPages);
           setHasMore(result.pagination.hasMore || false);
+          
+          // If we're on a page that has no data and it's not page 1, go back to page 1
+          if (fetchedLogs.length === 0 && currentPage > 1) {
+            setCurrentPage(1);
+          }
+        } else {
+          // Fallback: calculate based on received data
+          const calculatedTotalPages = Math.ceil(fetchedLogs.length / logsPerPage);
+          setTotalPages(Math.max(1, calculatedTotalPages));
         }
         setError("");
       } else {
@@ -182,63 +194,71 @@ export default function ActivityLogs() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Modern Header */}
-      <div className="bg-white/80 backdrop-blur-xl shadow-lg border-b border-white/20">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
-              <div className="relative">
-                <div className="w-16 h-16 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-2xl flex items-center justify-center shadow-lg">
-                  <span className="text-2xl">📊</span>
-                </div>
-                <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
-                  <span className="text-xs text-white font-bold">!</span>
-                </div>
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-gradient mb-2">Admin Activity Logs</h1>
-                <p className="text-slate-600 text-lg">Monitor admin actions and system activities in real-time</p>
-                <div className="flex items-center gap-4 mt-3">
-                  <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 rounded-full">
-                    <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
-                    <span className="text-sm font-medium text-indigo-700">Live Monitoring</span>
-                  </div>
-                  <div className="text-sm text-slate-500">
-                    {logs.length} activities tracked
-                  </div>
-                </div>
-              </div>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-slate-100 -mt-24">
+      <div className="max-w-9xl mx-auto px-6 py-4">
+        {/* Header Section */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Admin Activity Logs
+              </h1>
+              <p className="text-gray-600 mt-1">
+                Monitor admin actions and system activities in real-time
+                <span className="ml-2 text-sm font-medium text-slate-600">
+                  • {logs.length} activities tracked
+                </span>
+              </p>
             </div>
-
-            <div className="flex items-center gap-4">
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
-                className="btn-primary flex items-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                    Refreshing...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Refresh
-                  </>
-                )}
-              </button>
+            <div className="flex gap-4">
+              <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-200">
+                <div className="text-xs text-gray-500 uppercase tracking-wide">
+                  Total Logs
+                </div>
+                <div className="text-2xl font-bold text-gray-900">
+                  {logs.length}
+                </div>
+              </div>
+              <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-emerald-200">
+                <div className="text-xs text-emerald-600 uppercase tracking-wide">
+                  Today
+                </div>
+                <div className="text-2xl font-bold text-emerald-600">
+                  {logs.filter(log => {
+                    const logDate = new Date(log.timestamp);
+                    const today = new Date();
+                    return logDate.toDateString() === today.toDateString();
+                  }).length}
+                </div>
+              </div>
+              <div className="flex items-center">
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className="bg-slate-600 text-white px-4 py-3 rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Refreshing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Refresh
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="space-y-8">
+        {/* Content */}
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="space-y-8">
           {/* Modern Filters */}
           <div className="card-modern p-8">
             <div className="flex items-center gap-3 mb-6">
@@ -352,9 +372,9 @@ export default function ActivityLogs() {
             )}
 
             {logs.length > 0 ? (
-              <div className="divide-y divide-white/20">
+              <div className="space-y-6">
                 {logs.map((log) => (
-                  <div key={log.id} className="p-6 hover:bg-white/30 transition-all duration-200 group">
+                  <div key={log.id} className="bg-white/60 backdrop-blur-sm rounded-2xl p-6 shadow-sm border border-white/40 hover:bg-white/80 hover:shadow-md transition-all duration-200 group">
                     <div className="flex items-start gap-6">
                       <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-lg transition-transform group-hover:scale-110 ${getActionColor(log.action)}`}>
                         {getActionIcon(log.action)}
@@ -529,5 +549,6 @@ export default function ActivityLogs() {
         </div>
       </div>
     </div>
+  </div>
   );
 }
