@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import { getReportById, resolveReport, getReportSocialStats, getPostComments } from "../api/user";
+import { getReportById, resolveReport, getReportSocialStats, getPostComments, getFieldAdmins, assignReportToAdmin } from "../api/user";
 import { useAuth } from "../components/AuthContext";
 import 'leaflet/dist/leaflet.css';
 
@@ -28,6 +28,13 @@ export default function ReportDetails() {
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [resolvedPhotos, setResolvedPhotos] = useState([]);
   const [photoPreview, setPhotoPreview] = useState([]);
+
+  // Assignment modal state
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [fieldAdmins, setFieldAdmins] = useState([]);
+  const [selectedAdminId, setSelectedAdminId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [loadingAdmins, setLoadingAdmins] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -299,6 +306,72 @@ export default function ReportDetails() {
     setPhotoPreview([]);
   };
 
+  const fetchFieldAdmins = async () => {
+    try {
+      setLoadingAdmins(true);
+      const result = await getFieldAdmins();
+      
+      if (result.success) {
+        setFieldAdmins(result.data || []);
+      } else {
+        console.error("Failed to fetch field admins:", result.message);
+        setFieldAdmins([]);
+      }
+    } catch (error) {
+      console.error("Error fetching field admins:", error);
+      setFieldAdmins([]);
+    } finally {
+      setLoadingAdmins(false);
+    }
+  };
+
+  const handleOpenAssignModal = () => {
+    setShowAssignModal(true);
+    if (fieldAdmins.length === 0) {
+      fetchFieldAdmins();
+    }
+  };
+
+  const handleAssignReport = async () => {
+    if (!selectedAdminId) {
+      alert("Please select a field admin");
+      return;
+    }
+
+    if (!adminData) {
+      alert("Admin authentication required");
+      return;
+    }
+
+    setAssigning(true);
+    
+    try {
+      const result = await assignReportToAdmin(id, selectedAdminId, adminData.id);
+
+      if (result.success) {
+        alert("Report assigned successfully!");
+        setShowAssignModal(false);
+        setSelectedAdminId("");
+        // Set flag to refresh reports list
+        sessionStorage.setItem('shouldRefreshReports', 'true');
+        // Refresh report data
+        fetchReportDetails();
+      } else {
+        alert(`Failed to assign report: ${result.message}`);
+      }
+    } catch (error) {
+      console.error("Error assigning report:", error);
+      alert("Failed to assign report. Please try again.");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const closeAssignModal = () => {
+    setShowAssignModal(false);
+    setSelectedAdminId("");
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
@@ -395,12 +468,21 @@ export default function ReportDetails() {
               {getPriorityBadge(report.priority)}
               {getStatusBadge(report.isResolved)}
               {!report.isResolved && (
-                <button
-                  onClick={() => setShowResolveModal(true)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-                >
-                  Mark as Resolved
-                </button>
+                <>
+                  <button
+                    onClick={handleOpenAssignModal}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
+                  >
+                    <span>👤</span>
+                    Assign to Field Admin
+                  </button>
+                  <button
+                    onClick={() => setShowResolveModal(true)}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                  >
+                    Mark as Resolved
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -442,6 +524,38 @@ export default function ReportDetails() {
                     <div className="bg-slate-50 rounded-lg p-3">
                       <p className="text-slate-900">{report.department || 'N/A'}</p>
                     </div>
+                  </div>
+                </div>
+
+                {/* Assignment Status */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Assignment Status</label>
+                  <div className={`rounded-lg p-4 border ${
+                    report.assignedAdminId 
+                      ? 'bg-blue-50 border-blue-200' 
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}>
+                    {report.assignedAdminId ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-blue-900">
+                          <span className="text-xl">👤</span>
+                          <span className="font-medium">Assigned to Field Admin</span>
+                        </div>
+                        {report.assignedAdminName && (
+                          <p className="text-sm text-blue-700">Admin: {report.assignedAdminName}</p>
+                        )}
+                        {report.status && (
+                          <p className="text-sm text-blue-700">
+                            Status: <span className="font-medium capitalize">{report.status.replace('_', ' ')}</span>
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-yellow-800">
+                        <span className="text-xl">⏳</span>
+                        <span className="font-medium">Not yet assigned to a field admin</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1030,6 +1144,140 @@ export default function ReportDetails() {
                   ) : (
                     <span className="flex items-center gap-2">
                       ✅ Mark as Resolved
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Report Modal */}
+      {showAssignModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 rounded-t-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-blue-100 p-2 rounded-lg">
+                    <span className="text-2xl">👤</span>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-slate-900">Assign to Field Admin</h3>
+                    <p className="text-sm text-slate-600">Select a field admin to handle this report</p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeAssignModal}
+                  className="text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="space-y-6">
+                {/* Field Admin Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Select Field Admin <span className="text-red-500">*</span>
+                  </label>
+                  {loadingAdmins ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent mx-auto"></div>
+                      <p className="text-sm text-slate-600 mt-2">Loading field admins...</p>
+                    </div>
+                  ) : fieldAdmins.length === 0 ? (
+                    <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg text-sm">
+                      No field admins available. Please create field admin accounts first.
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedAdminId}
+                      onChange={(e) => setSelectedAdminId(e.target.value)}
+                      className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                      required
+                    >
+                      <option value="">-- Select a field admin --</option>
+                      {fieldAdmins.map((admin) => (
+                        <option key={admin.adminId || admin.id} value={admin.adminId || admin.id}>
+                          {admin.fullName || admin.full_name} ({admin.email})
+                          {admin.department ? ` - ${admin.department}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Report Info Summary */}
+                <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg">
+                  <h4 className="font-medium text-slate-900 mb-3 flex items-center gap-2">
+                    📋 Report Information
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Category:</span>
+                      <span className="text-slate-900 font-medium">{report.category}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Priority:</span>
+                      <span className="text-slate-900 font-medium">{report.priority}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Department:</span>
+                      <span className="text-slate-900 font-medium">{report.department || 'Not specified'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Location:</span>
+                      <span className="text-slate-900 font-medium">{report.address?.substring(0, 30)}...</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assignment Info */}
+                <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                  <h4 className="font-medium text-blue-900 mb-3 flex items-center gap-2">
+                    ℹ️ Assignment Details
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-blue-700">Assigned by:</span>
+                      <span className="text-blue-900 font-medium">
+                        {adminData?.fullName || adminData?.email || 'Current Admin'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-blue-700">Assignment time:</span>
+                      <span className="text-blue-900 font-medium">{new Date().toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-200">
+                <button
+                  onClick={closeAssignModal}
+                  className="px-6 py-2 text-slate-700 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors font-medium"
+                  disabled={assigning}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAssignReport}
+                  disabled={assigning || !selectedAdminId || fieldAdmins.length === 0}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {assigning ? (
+                    <span className="flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Assigning...
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      👤 Assign Report
                     </span>
                   )}
                 </button>

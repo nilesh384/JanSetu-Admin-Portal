@@ -149,6 +149,31 @@ class RedisService {
     }
   }
 
+  // Delete a single key (alias for del)
+  async delete(key) {
+    return await this.del(key);
+  }
+
+  // Delete all keys matching a pattern
+  async deletePattern(pattern) {
+    if (!this.isAvailable()) {
+      console.warn('Redis not available, skipping pattern delete');
+      return false;
+    }
+
+    try {
+      const keys = await this.scanKeys(pattern);
+      if (keys.length > 0) {
+        await this.client.del(keys);
+        console.log(`🗑️ Deleted ${keys.length} keys matching pattern: ${pattern}`);
+      }
+      return true;
+    } catch (error) {
+      console.error('Redis DELETE PATTERN error:', error.message);
+      return false;
+    }
+  }
+
   // Scan keys matching a pattern
   async scanKeys(pattern) {
     if (!this.isAvailable()) {

@@ -287,8 +287,6 @@ const getAdminProfile = async (req, res) => {
             });
         }
 
-        console.log('🔍 Getting admin profile for ID:', adminId);
-
         const getAdminQuery = `
             SELECT id, email, full_name, department, role, is_active, last_login, created_at
             FROM admins
@@ -298,15 +296,15 @@ const getAdminProfile = async (req, res) => {
         const admin = await queryOne(getAdminQuery, [adminId]);
 
         if (!admin) {
-            console.log('❌ Admin not found:', adminId);
             return res.status(404).json({
                 success: false,
                 message: "Admin not found"
             });
         }
 
+        // Map database fields to camelCase for frontend
         const adminData = {
-            id: admin.id,
+            adminId: admin.id,
             email: admin.email,
             fullName: admin.full_name,
             department: admin.department,
@@ -438,7 +436,7 @@ const getAllAdmins = async (req, res) => {
         const getAdminsQuery = `
             SELECT id, email, full_name, department, role, is_active, last_login, created_at
             FROM admins
-            WHERE LOWER(role) IN (${placeholders})
+            WHERE LOWER(role) IN (${placeholders}) AND is_active = true
             ORDER BY
                 is_active DESC,
                 CASE

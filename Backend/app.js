@@ -22,7 +22,7 @@ initApp();
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Id'],
 }));
 
 // Preflight requests are handled by the cors middleware above
@@ -37,6 +37,8 @@ import healthRouter from "./routes/health.routes.js";
 import adminRouter from "./routes/admin.routes.js";
 import messagesRouter from "./routes/messages.routes.js";
 import socialRouter from "./routes/social.routes.js";
+import notificationsRouter from "./routes/notifications.routes.js";
+import fieldAdminRouter from "./routes/fieldAdmin.routes.js";
 
 
 //routes declaration
@@ -47,6 +49,8 @@ app.use("/api/v1/health", healthRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/messages", messagesRouter);
 app.use("/api/v1/social", socialRouter);
+app.use("/api/v1/notifications", notificationsRouter);
+app.use("/api/v1/field-admin", fieldAdminRouter);
 
 
 

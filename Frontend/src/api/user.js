@@ -68,11 +68,29 @@ export const adminLogin = async (email) => {
 export const getAdminProfile = async (adminId) => {
     try {
         const response = await axios.get(`${API_BASE_URL}/admin/profile/${adminId}`);
+        
+        // Get the admin data from response and ensure proper field mapping
+        let adminData = response.data.data || response.data.admin || response.data;
+        
+        // Map snake_case fields from backend to camelCase for frontend
+        if (adminData && typeof adminData === 'object') {
+            adminData = {
+                adminId: adminData.admin_id || adminData.adminId,
+                fullName: adminData.full_name || adminData.fullName,
+                email: adminData.email,
+                phoneNumber: adminData.phone_number || adminData.phoneNumber,
+                department: adminData.department,
+                role: adminData.role,
+                isActive: adminData.is_active !== undefined ? adminData.is_active : adminData.isActive,
+                createdAt: adminData.created_at || adminData.createdAt,
+                updatedAt: adminData.updated_at || adminData.updatedAt
+            };
+        }
 
         return {
             success: true,
-            data: response.data.data,
-            message: response.data.message
+            data: adminData,
+            message: response.data.message || "Profile fetched successfully"
         };
     } catch (error) {
         return {
@@ -90,9 +108,18 @@ export const getAllAdmins = async (requesterRole, requestedRoles = null) => {
             requestedRoles: requestedRoles
         });
 
-        // Backend already returns data in camelCase format (isActive, fullName, etc.)
-        // No need to map field names anymore
-        const mappedData = response.data.data || [];
+        // Map backend field names to frontend expected names
+        const mappedData = (response.data.data || []).map(admin => ({
+            ...admin,
+            // Essential field mappings
+            adminId: admin.admin_id || admin.id,
+            fullName: admin.full_name || admin.fullName,
+            phoneNumber: admin.phone_number || admin.phoneNumber,
+            isActive: admin.is_active !== undefined ? admin.is_active : admin.isActive,
+            createdAt: admin.created_at || admin.createdAt,
+            updatedAt: admin.updated_at || admin.updatedAt,
+            lastLogin: admin.last_login || admin.lastLogin
+        }));
 
         return {
             success: true,
@@ -343,42 +370,112 @@ export const getAdminActivityLogs = async (requesterRole, filters = {}) => {
     }
 };
 
-// Get social statistics for a specific report
+// Social Media Functions (Placeholder implementations)
+
+// Get social stats for a report
 export const getReportSocialStats = async (reportId) => {
     try {
+        console.log('Fetching social stats for report:', reportId);
+        
         const response = await axios.get(`${API_BASE_URL}/social/reports/${reportId}/stats`);
-
+        
         return {
             success: true,
-            data: response.data.stats,
-            message: response.data.message || "Report social stats fetched successfully"
+            message: "Social stats fetched successfully",
+            data: response.data.stats
         };
     } catch (error) {
+        console.error('Error fetching social stats:', error);
+        
+        // If it's a 404 or the report has no social post, return default stats
+        if (error.response?.status === 404 || error.response?.data?.message?.includes('no social post')) {
+            return {
+                success: true,
+                message: "No social post found for this report",
+                data: {
+                    reportId: reportId,
+                    hasSocialPost: false,
+                    upvotes: 0,
+                    downvotes: 0,
+                    totalScore: 0,
+                    commentCount: 0,
+                    shareCount: 0,
+                    viewCount: 0,
+                    isTrending: false,
+                    isFeatured: false,
+                    socialPostCreatedAt: null
+                }
+            };
+        }
+        
         return {
             success: false,
-            message: error.response?.data?.message || "Failed to fetch report social stats"
+            message: error.response?.data?.message || "Failed to fetch social stats"
         };
     }
 };
 
 // Get comments for a social post
-export const getPostComments = async (postId, page = 1, limit = 20) => {
+export const getPostComments = async (postId) => {
     try {
-        const response = await axios.get(`${API_BASE_URL}/social/posts/${postId}/comments`, {
-            params: { page, limit }
+        console.log('Fetching comments for post:', postId);
+        
+        const response = await axios.get(`${API_BASE_URL}/social/posts/${postId}/comments`);
+        
+        return {
+            success: true,
+            message: "Comments fetched successfully",
+            data: response.data.comments || []
+        };
+    } catch (error) {
+        console.error('Error fetching comments:', error);
+        
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to fetch comments",
+            data: []
+        };
+    }
+};
+
+// Get field admins for assignment
+export const getFieldAdmins = async () => {
+    try {
+        const response = await axios.post(`${API_BASE_URL}/admin/all`, {
+            requesterRole: "super_admin",
+            requestedRoles: ["viewer"]
         });
 
         return {
             success: true,
-            data: response.data.comments,
-            totalCount: response.data.totalCount,
-            hasMore: response.data.hasMore,
-            message: response.data.message || "Comments fetched successfully"
+            data: response.data.data || [],
+            message: response.data.message
         };
     } catch (error) {
         return {
             success: false,
-            message: error.response?.data?.message || "Failed to fetch comments"
+            message: error.response?.data?.message || "Failed to fetch field admins"
+        };
+    }
+};
+
+// Assign report to field admin
+export const assignReportToAdmin = async (reportId, assignedAdminId, assignedBy) => {
+    try {
+        const response = await axios.post(`${API_BASE_URL}/reports/${reportId}/assign`, {
+            assignedAdminId,
+            assignedBy
+        });
+
+        return {
+            success: true,
+            data: response.data.data,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to assign report"
         };
     }
 };
