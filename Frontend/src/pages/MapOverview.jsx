@@ -6,7 +6,7 @@ import iconRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png';
 import iconUrl from 'leaflet/dist/images/marker-icon.png';
 import shadowUrl from 'leaflet/dist/images/marker-shadow.png';
 import { useNavigate } from 'react-router-dom';
-import { getAllReportCoords, getAdminReports } from '../api/user';
+import { getAllReportCoords, getAdminReports, getCommunityStats, getDepartmentPerformance, getResponseTimeAnalytics, exportReports, generateAnalyticsReport } from '../api/user';
 import { useAuth } from '../components/AuthContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
 
@@ -27,6 +27,12 @@ export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [error, setError] = useState(null);
   const [activeView, setActiveView] = useState('overview');
+  const [communityStats, setCommunityStats] = useState(null);
+  const [departmentPerformance, setDepartmentPerformance] = useState({});
+  const [responseTimeData, setResponseTimeData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [generateLoading, setGenerateLoading] = useState(false);
   const mapRef = useRef(null);
   const navigate = useNavigate();
 
@@ -40,13 +46,33 @@ export default function AdminDashboard() {
     popupAnchor: [0, -8],
   });
 
+  // Fetch ALL reports for analytics (no filters applied)
+  const fetchAllReports = async () => {
+    try {
+      const adminId = adminData?.id;
+      if (!adminId) {
+        setReports([]);
+        return;
+      }
+
+      const resp = await getAdminReports(adminId, {
+        limit: 10000, // Get all reports for analytics
+        offset: 0
+      });
+
+      const data = resp.success ? resp.data : [];
+      setReports(data);
+    } catch (err) {
+      console.error('Error loading all reports for analytics', err);
+    }
+  };
+
   const fetchReports = async (opts = {}) => {
     setLoading(true);
     setError(null);
     try {
       const adminId = adminData?.id;
       if (!adminId) {
-        setReports([]);
         setPoints([]);
         return;
       }
@@ -60,7 +86,6 @@ export default function AdminDashboard() {
       });
 
       const data = resp.success ? resp.data : [];
-      setReports(data);
 
       const coords = data
         .filter(r => r.latitude !== undefined && r.longitude !== undefined && r.latitude !== null && r.longitude !== null)
@@ -84,8 +109,41 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchAnalyticsData = async () => {
+    if (!adminData?.id) return;
+    
+    setAnalyticsLoading(true);
+    
+    try {
+      // Fetch community stats
+      const communityStatsResponse = await getCommunityStats();
+      if (communityStatsResponse.success) {
+        setCommunityStats(communityStatsResponse.data);
+      }
+
+      // Fetch department performance
+      const deptPerformanceResponse = await getDepartmentPerformance(adminData.id);
+      if (deptPerformanceResponse.success) {
+        setDepartmentPerformance(deptPerformanceResponse.data);
+      }
+
+      // Fetch response time analytics
+      const responseTimeResponse = await getResponseTimeAnalytics(adminData.id);
+      if (responseTimeResponse.success) {
+        setResponseTimeData(responseTimeResponse.data);
+      }
+    } catch (error) {
+      console.error('Error fetching analytics data:', error);
+      setError('Failed to load analytics data');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchReports();
+    fetchAllReports(); // Fetch all reports for analytics
+    fetchReports(); // Fetch filtered reports for map
+    fetchAnalyticsData();
   }, [adminData]);
 
   // Analytics calculations
@@ -144,22 +202,78 @@ export default function AdminDashboard() {
 
   const timelineData = getTimelineData();
 
-  // Resolution rate
-  const resolutionRate = totalReports > 0 ? ((resolvedReports / totalReports) * 100).toFixed(1) : 0;
+  // Resolution rate - use community stats if available, otherwise calculate from reports
+  const resolutionRate = communityStats ? 
+    communityStats.resolutionRate.toFixed(1) : 
+    (totalReports > 0 ? ((resolvedReports / totalReports) * 100).toFixed(1) : 0);
 
-  // Average resolution time (mock data for demo)
-  const avgResolutionTime = "2.3 days";
+  // Average resolution time - use real data from community stats or response time analytics
+  const avgResolutionTime = communityStats ? 
+    `${communityStats.avgResponseTime} days` : 
+    (responseTimeData?.overall || "0.0 days");
 
   const center = points.length ? [points[0].lat, points[0].lng] : [20, 77];
 
   const handleApplyFilters = () => {
-    fetchReports();
+    fetchReports(); // Only refresh filtered reports for map display
+    // Analytics always use all reports, so no need to refresh
   };
 
   const handleReset = () => {
     setFilters({ category: '', priority: '', isResolved: '' });
     setSearch('');
-    fetchReports();
+    fetchReports(); // Only refresh filtered reports for map display
+    // Analytics always use all reports, so no need to refresh
+  };
+
+  const handleExportReports = async (format = 'html') => {
+    if (!adminData?.id) return;
+    
+    setExportLoading(true);
+    try {
+      const result = await exportReports(adminData.id, filters, format);
+      if (result.success) {
+        // File download is handled in the API function
+        console.log('✅ Reports exported successfully');
+        const formatName = format === 'excel' ? 'Excel CSV' : 'HTML table';
+        alert(`Successfully exported ${result.stats?.totalReports || 'all'} reports as ${formatName}!`);
+      } else {
+        console.error('❌ Export failed:', result.message);
+        alert('Failed to export reports: ' + result.message);
+      }
+    } catch (error) {
+      console.error('❌ Export error:', error);
+      alert('Error exporting reports: ' + error.message);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    if (!adminData?.id) return;
+    
+    setGenerateLoading(true);
+    try {
+      const result = await generateAnalyticsReport(adminData.id);
+      if (result.success) {
+        // File download is handled in the API function
+        console.log('✅ Analytics report generated successfully');
+        alert('Analytics report generated successfully! The comprehensive HTML report has been downloaded.');
+      } else {
+        console.error('❌ Report generation failed:', result.message);
+        alert('Failed to generate report: ' + result.message);
+      }
+    } catch (error) {
+      console.error('❌ Report generation error:', error);
+      alert('Error generating report: ' + error.message);
+    } finally {
+      setGenerateLoading(false);
+    }
+  };
+
+  const handleSendAlerts = async () => {
+    // TODO: Implement alert functionality
+    alert('Alert functionality will be implemented soon. This will send notifications to relevant administrators about high-priority reports.');
   };
 
   const zoomToFit = () => {
@@ -393,63 +507,99 @@ export default function AdminDashboard() {
 
         {activeView === 'analytics' && (
           <div className="space-y-8">
+            {/* Loading State */}
+            {analyticsLoading && (
+              <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-200 text-center">
+                <div className="flex items-center justify-center space-x-2">
+                  <svg className="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-lg text-gray-600">Loading analytics data...</span>
+                </div>
+              </div>
+            )}
+            
+            {/* Error State */}
+            {error && !analyticsLoading && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+                <div className="flex items-center">
+                  <svg className="h-6 w-6 text-red-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.502 0L4.732 15.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <span className="text-red-700">{error}</span>
+                </div>
+                <button 
+                  onClick={() => {setError(null); fetchAnalyticsData();}} 
+                  className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            
             {/* Performance Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {!analyticsLoading && !error && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
                 <h4 className="font-semibold text-gray-900 mb-4">Department Performance</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Infrastructure</span>
-                    <span className="text-sm font-medium">85%</span>
+                {Object.keys(departmentPerformance).length > 0 ? (
+                  Object.entries(departmentPerformance).slice(0, 3).map(([dept, stats], index) => {
+                    const colorMap = {
+                      0: '#2563eb', // blue-600
+                      1: '#16a34a', // green-600  
+                      2: '#9333ea'  // purple-600
+                    };
+                    const color = colorMap[index] || '#6b7280'; // gray-500 fallback
+                    const rate = stats.resolutionRate || 0;
+                    
+                    return (
+                      <div key={dept} className="space-y-3 mt-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600 capitalize">{dept.toLowerCase()}</span>
+                          <span className="text-sm font-medium">{rate.toFixed(1)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="h-2 rounded-full"
+                            style={{
+                              width: `${Math.min(rate, 100)}%`,
+                              backgroundColor: color
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-sm text-gray-500">
+                    {analyticsLoading ? 'Loading department performance...' : 'No department data available'}
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-blue-600 h-2 rounded-full" style={{width: '85%'}}></div>
-                  </div>
-                </div>
-                <div className="space-y-3 mt-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Safety</span>
-                    <span className="text-sm font-medium">72%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-green-600 h-2 rounded-full" style={{width: '72%'}}></div>
-                  </div>
-                </div>
-                <div className="space-y-3 mt-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Other</span>
-                    <span className="text-sm font-medium">91%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-purple-600 h-2 rounded-full" style={{width: '91%'}}></div>
-                  </div>
-                </div>
+                )}
               </div>
 
               <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
                 <h4 className="font-semibold text-gray-900 mb-4">Response Time</h4>
                 <div className="space-y-4">
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-600">2.3</div>
+                    <div className="text-3xl font-bold text-blue-600">
+                      {responseTimeData?.overall?.replace(' days', '') || '0.0'}
+                    </div>
                     <div className="text-sm text-gray-600">Average Days</div>
                   </div>
                   <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Critical</span>
-                      <span className="font-medium">4.2 hrs</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>High</span>
-                      <span className="font-medium">1.1 days</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Medium</span>
-                      <span className="font-medium">2.8 days</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Low</span>
-                      <span className="font-medium">5.2 days</span>
-                    </div>
+                    {responseTimeData?.byPriority ? (
+                      Object.entries(responseTimeData.byPriority).map(([priority, data]) => (
+                        <div key={priority} className="flex justify-between text-sm">
+                          <span className="capitalize">{priority}</span>
+                          <span className="font-medium">{data.avgTime}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-gray-500">
+                        {analyticsLoading ? 'Loading response times...' : 'No response time data available'}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -460,14 +610,25 @@ export default function AdminDashboard() {
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-sm text-gray-600">This Month</span>
-                      <span className="text-sm font-medium text-green-600">+12%</span>
+                      <span className="text-sm font-medium text-green-600">
+                        {timelineData && timelineData.length > 0 ? 
+                          (timelineData[timelineData.length - 1].reports > timelineData[0].reports ? '+' : '') +
+                          Math.round(((timelineData[timelineData.length - 1].reports - timelineData[0].reports) / Math.max(timelineData[0].reports, 1)) * 100) + '%'
+                          : '0%'
+                        }
+                      </span>
                     </div>
                     <div className="text-2xl font-bold">{totalReports}</div>
                   </div>
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-sm text-gray-600">Resolution Rate</span>
-                      <span className="text-sm font-medium text-blue-600">+5%</span>
+                      <span className="text-sm font-medium text-blue-600">
+                        {communityStats ? 
+                          `${Math.round(communityStats.resolutionRate) >= 75 ? '+' : ''}${Math.round(communityStats.resolutionRate - 70)}%` 
+                          : '+5%'
+                        }
+                      </span>
                     </div>
                     <div className="text-2xl font-bold">{resolutionRate}%</div>
                   </div>
@@ -475,20 +636,78 @@ export default function AdminDashboard() {
               </div>
 
               <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-                <h4 className="font-semibold text-gray-900 mb-4">Quick Actions</h4>
+                <h4 className="font-semibold text-gray-900 mb-4">Export & Actions</h4>
+                <p className="text-xs text-gray-600 mb-3">Export reports in different formats</p>
                 <div className="space-y-3">
-                  <button className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
-                    Export Reports
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => handleExportReports('html')}
+                      disabled={exportLoading || !adminData?.id}
+                      className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-xs flex items-center justify-center"
+                    >
+                      {exportLoading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-1 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          📋 HTML
+                        </>
+                      )}
+                    </button>
+                    <button 
+                      onClick={() => handleExportReports('excel')}
+                      disabled={exportLoading || !adminData?.id}
+                      className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-xs flex items-center justify-center"
+                    >
+                      {exportLoading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-1 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          📊 Excel
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <button 
+                    onClick={handleGenerateReport}
+                    disabled={generateLoading || !adminData?.id}
+                    className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex items-center justify-center"
+                  >
+                    {generateLoading ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        Generate Analytics Report
+                      </>
+                    )}
                   </button>
-                  <button className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm">
-                    Generate Report
-                  </button>
-                  <button className="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm">
+                  <button 
+                    onClick={handleSendAlerts}
+                    className="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm flex items-center justify-center"
+                  >
                     Send Alerts
                   </button>
                 </div>
               </div>
             </div>
+            )}
 
             {/* Detailed Analytics */}
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
@@ -515,7 +734,7 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-bold text-gray-900">Map Controls</h3>
                 <div className="flex items-center gap-2">
-                  <button title="Refresh" onClick={() => fetchReports()} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" aria-label="Refresh">
+                  <button title="Refresh" onClick={() => { fetchAllReports(); fetchReports(); fetchAnalyticsData(); }} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" aria-label="Refresh">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-600" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M4 4a1 1 0 011-1h2a1 1 0 110 2H6v1a7 7 0 101.757 4.243 1 1 0 11-1.414-1.414A5 5 0 1111 6V4a1 1 0 112 0v2a1 1 0 01-1 1H10a1 1 0 110-2h.586A7 7 0 004 4z" clipRule="evenodd" />
                     </svg>
