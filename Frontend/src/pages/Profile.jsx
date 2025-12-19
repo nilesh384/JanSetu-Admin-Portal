@@ -65,6 +65,11 @@ export default function Profile() {
     return new Date(dateString).toLocaleString();
   };
 
+  // Check if current user is a viewer
+  const isViewer = adminData?.role === 'viewer' ||
+                   adminData?.role === 'VIEWER' ||
+                   adminData?.role === 'Viewer';
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -107,13 +112,15 @@ export default function Profile() {
                 <LayoutDashboard size={18} />
                 <span>Dashboard</span>
               </button>
-              <button
-                onClick={() => navigate("/admin-management")}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg shadow hover:bg-green-700 flex items-center space-x-2"
-              >
-                <Users size={18} />
-                <span>Manage</span>
-              </button>
+              {!isViewer && (
+                <button
+                  onClick={() => navigate("/admin-management")}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg shadow hover:bg-green-700 flex items-center space-x-2"
+                >
+                  <Users size={18} />
+                  <span>Manage</span>
+                </button>
+              )}
               <button
                 onClick={handleLogout}
                 className="bg-red-600 text-white px-4 py-2 rounded-lg shadow hover:bg-red-700 flex items-center space-x-2"
