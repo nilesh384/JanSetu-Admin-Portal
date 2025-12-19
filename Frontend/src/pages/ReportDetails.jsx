@@ -312,7 +312,34 @@ export default function ReportDetails() {
       const result = await getFieldAdmins();
       
       if (result.success) {
-        setFieldAdmins(result.data || []);
+        let admins = result.data || [];
+        
+        // Filter field admins by department if report has department info
+        if (report && report.department) {
+          console.log('All available admins:', admins.map(a => ({ name: a.fullName, department: a.department })));
+          console.log('Report department:', report.department);
+          
+          // Filter to show only admins whose department matches the report's department
+          const originalCount = admins.length;
+          admins = admins.filter(admin => {
+            const adminDepartment = admin.department;
+            const reportDepartment = report.department;
+            
+            // Case-insensitive comparison
+            const matches = adminDepartment && reportDepartment && 
+                   adminDepartment.toLowerCase().trim() === reportDepartment.toLowerCase().trim();
+            
+            if (matches) {
+              console.log(`✅ Admin ${admin.fullName} matches department ${adminDepartment}`);
+            }
+            
+            return matches;
+          });
+          
+          console.log(`Filtered from ${originalCount} to ${admins.length} field admins for department: ${report.department}`);
+        }
+        
+        setFieldAdmins(admins);
       } else {
         console.error("Failed to fetch field admins:", result.message);
         setFieldAdmins([]);
@@ -327,9 +354,8 @@ export default function ReportDetails() {
 
   const handleOpenAssignModal = () => {
     setShowAssignModal(true);
-    if (fieldAdmins.length === 0) {
-      fetchFieldAdmins();
-    }
+    // Always fetch field admins to ensure filtering by department works correctly
+    fetchFieldAdmins();
   };
 
   const handleAssignReport = async () => {
@@ -1183,6 +1209,11 @@ export default function ReportDetails() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     Select Field Admin <span className="text-red-500">*</span>
+                    {report?.department && (
+                      <span className="text-xs text-blue-600 ml-2">
+                        (Showing {report.department} department only)
+                      </span>
+                    )}
                   </label>
                   {loadingAdmins ? (
                     <div className="text-center py-8">
@@ -1191,7 +1222,10 @@ export default function ReportDetails() {
                     </div>
                   ) : fieldAdmins.length === 0 ? (
                     <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg text-sm">
-                      No field admins available. Please create field admin accounts first.
+                      {report?.department ? 
+                        `No field admins available for ${report.department} department. Please create field admin accounts for this department.` :
+                        'No field admins available. Please create field admin accounts first.'
+                      }
                     </div>
                   ) : (
                     <select

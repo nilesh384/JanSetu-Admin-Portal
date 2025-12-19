@@ -2,7 +2,7 @@ import axios from "axios";
 import { data } from "react-router-dom";
 import * as XLSX from 'xlsx';
 
-const API_BASE_URL = "http://localhost:4000/api/v1"; // Adjust this to your backend URL
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api/v1";
 
 // Send OTP to admin email
 export const sendAdminOTP = async (email) => {
