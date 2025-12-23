@@ -90,8 +90,14 @@ const OTPVerification = ({
         </div>
         <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Verify OTP</h2>
         <p className="text-gray-600 text-sm">We’ve sent a 6-digit code to</p>
-        <p className="text-blue-700 font-semibold">{email}</p>
-      </div>
+        <p className="text-blue-700 font-semibold">{email}</p>        
+        {/* Display OTP for Development - Only for techsprint@gmail.com */}
+        {otpData?.otp && email.toLowerCase() === 'techsprint@gmail.com' && (
+          <div className="mt-4 p-3 bg-yellow-50 border-2 border-yellow-400 rounded-lg">
+            <p className="text-xs text-yellow-800 font-semibold mb-1">🔧 TEST EMAIL</p>
+            <p className="text-sm text-gray-700">Your OTP is: <span className="font-mono font-bold text-xl text-yellow-900">{otpData.otp}</span></p>
+          </div>
+        )}      </div>
 
       {/* Error */}
       {error && (

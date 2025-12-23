@@ -395,6 +395,21 @@ export default function AdminDashboard() {
         {/* Content based on active view */}
         {activeView === 'overview' && (
           <div className="space-y-8">
+            {loading ? (
+              <div className="bg-white rounded-xl p-16 shadow-sm border border-gray-200">
+                <div className="flex flex-col items-center justify-center space-y-4">
+                  <svg className="animate-spin h-12 w-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <div className="text-center">
+                    <p className="text-xl font-semibold text-gray-700">Loading Dashboard Data...</p>
+                    <p className="text-sm text-gray-500 mt-2">Please wait while we fetch the latest reports</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+            <>
             {/* Timeline Chart */}
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
               <h3 className="text-xl font-semibold text-gray-900 mb-6">Reports Timeline (Last 30 Days)</h3>
@@ -502,44 +517,46 @@ export default function AdminDashboard() {
                 </table>
               </div>
             </div>
+            </>
+            )}
           </div>
         )}
 
         {activeView === 'analytics' && (
           <div className="space-y-8">
             {/* Loading State */}
-            {analyticsLoading && (
-              <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-200 text-center">
-                <div className="flex items-center justify-center space-x-2">
-                  <svg className="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            {analyticsLoading ? (
+              <div className="bg-white rounded-xl p-16 shadow-sm border border-gray-200">
+                <div className="flex flex-col items-center justify-center space-y-4">
+                  <svg className="animate-spin h-12 w-12 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  <span className="text-lg text-gray-600">Loading analytics data...</span>
+                  <div className="text-center">
+                    <p className="text-xl font-semibold text-gray-700">Loading Analytics Data...</p>
+                    <p className="text-sm text-gray-500 mt-2">Please wait while we fetch the latest statistics</p>
+                  </div>
                 </div>
               </div>
-            )}
-            
-            {/* Error State */}
-            {error && !analyticsLoading && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-                <div className="flex items-center">
-                  <svg className="h-6 w-6 text-red-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            ) : error ? (
+              /* Error State */
+              <div className="bg-red-50 border border-red-200 rounded-xl p-8">
+                <div className="flex flex-col items-center text-center">
+                  <svg className="h-12 w-12 text-red-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.502 0L4.732 15.5c-.77.833.192 2.5 1.732 2.5z" />
                   </svg>
-                  <span className="text-red-700">{error}</span>
+                  <p className="text-lg font-semibold text-red-700 mb-2">{error}</p>
+                  <button 
+                    onClick={() => {setError(null); fetchAnalyticsData();}} 
+                    className="mt-4 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Retry Loading Analytics
+                  </button>
                 </div>
-                <button 
-                  onClick={() => {setError(null); fetchAnalyticsData();}} 
-                  className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-                >
-                  Retry
-                </button>
               </div>
-            )}
-            
-            {/* Performance Metrics */}
-            {!analyticsLoading && !error && (
+            ) : (
+              /* Performance Metrics */
+              <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
                 <h4 className="font-semibold text-gray-900 mb-4">Department Performance</h4>
@@ -707,7 +724,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </div>
-            )}
 
             {/* Detailed Analytics */}
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
@@ -724,6 +740,8 @@ export default function AdminDashboard() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+            </>
+            )}
           </div>
         )}
 
