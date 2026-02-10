@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAdminReports } from "../api/user";
 import { useAuth } from "../components/AuthContext";
 
-export default function Dashboard({ department }) {
+export default function Dashboard() {
   const navigate = useNavigate();
   const { adminData, isAuthenticated } = useAuth();
   const [reports, setReports] = useState([]);
@@ -15,7 +15,7 @@ export default function Dashboard({ department }) {
   const [sortOrder, setSortOrder] = useState("desc");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [lastScrollPosition, setLastScrollPosition] = useState(0);
-  const [filters, setFilters] = useState({
+  const [filters] = useState({
     isResolved: undefined,
     category: "",
     priority: "",
@@ -23,6 +23,30 @@ export default function Dashboard({ department }) {
     limit: 50,
     offset: 0
   });
+
+  // Fetch reports function - defined before useEffects
+  const fetchReports = useCallback(async () => {
+    if (!adminData?.id) {
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const result = await getAdminReports(adminData.id, filters);
+
+      if (result.success) {
+        setReports(result.reports || result.data || []);
+        setError("");
+      } else {
+        setError(result.message);
+      }
+    } catch (err) {
+      setError("Failed to load reports");
+      console.error("Reports fetch error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [adminData, filters]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -33,7 +57,7 @@ export default function Dashboard({ department }) {
     if (adminData) {
       fetchReports();
     }
-  }, [isAuthenticated, adminData, filters]);
+  }, [isAuthenticated, adminData, fetchReports, navigate]);
 
   // Restore state from sessionStorage on mount
   useEffect(() => {
@@ -87,7 +111,7 @@ export default function Dashboard({ department }) {
     if (refreshTrigger > 0 && adminData) {
       fetchReports();
     }
-  }, [refreshTrigger, adminData]);
+  }, [refreshTrigger, adminData, fetchReports]);
 
   // Restore scroll position after data loads
   useEffect(() => {
@@ -98,38 +122,6 @@ export default function Dashboard({ department }) {
       }, 100);
     }
   }, [loading, lastScrollPosition]);
-
-  const fetchReports = async () => {
-    try {
-      setLoading(true);
-      const result = await getAdminReports(adminData.id, filters);
-
-      if (result.success) {
-        setReports(result.reports || result.data || []);
-        setError("");
-      } else {
-        setError(result.message);
-      }
-    } catch (err) {
-      setError("Failed to load reports");
-      console.error("Reports fetch error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleReportClick = (report) => {
-    // Save current state before navigation
-    const currentState = {
-      searchQuery,
-      statusFilter,
-      sortBy,
-      sortOrder,
-      scrollPosition: window.scrollY
-    };
-    sessionStorage.setItem('reportsPageState', JSON.stringify(currentState));
-    navigate(`/report/${report.id}`);
-  };
 
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
@@ -156,23 +148,28 @@ export default function Dashboard({ department }) {
     const badge = badges[p] || { bg: 'bg-gray-100', text: 'text-gray-800', dot: 'bg-gray-500', label: 'N/A' };
     
     return (
-      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${badge.bg} ${badge.text}`}>
+      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${badge.bg} ${badge.text}`}>
         <div className={`w-1.5 h-1.5 rounded-full ${badge.dot}`}></div>
         {badge.label}
       </div>
     );
   };
 
-  const getStatusBadge = (isResolved) => {
-    return isResolved ? (
-      <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-        <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-        Resolved
-      </div>
-    ) : (
-      <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-        <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></div>
-        Pending
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      pending: { bg: 'bg-orange-100', text: 'text-orange-800', dot: 'bg-orange-500 animate-pulse', label: 'Pending' },
+      assigned: { bg: 'bg-purple-100', text: 'text-purple-800', dot: 'bg-purple-500', label: 'Assigned' },
+      in_progress: { bg: 'bg-blue-100', text: 'text-blue-800', dot: 'bg-blue-500', label: 'In Progress' },
+      resolved: { bg: 'bg-green-100', text: 'text-green-800', dot: 'bg-green-500', label: 'Completed' },
+      rejected: { bg: 'bg-red-100', text: 'text-red-800', dot: 'bg-red-500', label: 'Rejected' },
+    };
+
+    const badge = statusConfig[status?.toLowerCase()] || statusConfig.pending;
+
+    return (
+      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${badge.bg} ${badge.text}`}>
+        <div className={`w-1.5 h-1.5 rounded-full ${badge.dot}`}></div>
+        {badge.label}
       </div>
     );
   };
@@ -410,7 +407,7 @@ export default function Dashboard({ department }) {
                       {getPriorityBadge(report.priority)}
                     </td>
                     <td className="px-6 py-4">
-                      {getStatusBadge(report.isResolved)}
+                      {getStatusBadge(report.status)}
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm text-slate-600">
