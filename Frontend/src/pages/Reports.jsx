@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAdminReports } from "../api/user";
 import { useAuth } from "../components/AuthContext";
+import { detectFraud, getFraudBadgeStyle } from "../utils/fraudDetection";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -174,6 +175,27 @@ export default function Dashboard() {
     );
   };
 
+  const getFraudBadge = (report) => {
+    // Detect fraud using report data and social stats if available
+    const fraudAnalysis = detectFraud(report, report.socialStats);
+    
+    if (!fraudAnalysis.isFraud && fraudAnalysis.score < 15) {
+      return null; // No badge if no fraud detected
+    }
+
+    const style = getFraudBadgeStyle(fraudAnalysis.severity);
+
+    return (
+      <div 
+        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold whitespace-nowrap border ${style.bg} ${style.text} ${style.border}`}
+        title={`Fraud Score: ${fraudAnalysis.score}\n${fraudAnalysis.reasons.join('\n')}`}
+      >
+        <div className={`w-1.5 h-1.5 rounded-full ${style.dot}`}></div>
+        <span>{style.icon} {style.label}</span>
+      </div>
+    );
+  };
+
   const filteredAndSortedReports = useMemo(() => {
     let filtered = reports.filter(report => {
       const matchesSearch = !searchQuery || 
@@ -262,42 +284,42 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <div className="max-w-7xl mx-auto px-6 py-0">
-        {/* Header Section */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-4">
+      <div className="max-w-7xl mx-auto px-4 py-0">
+        {/* Compact Header with Inline Stats */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-3">
             <div>
-              <h1 className="text-3xl font-bold text-slate-900">Reports Dashboard</h1>
+              <h1 className="text-2xl font-bold text-slate-900">Reports Dashboard</h1>
             </div>
-            <div className="flex gap-4 items-center">
+            <div className="flex gap-3 items-center">
               {/* Refresh Button */}
               <button
                 onClick={() => setRefreshTrigger(prev => prev + 1)}
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title="Refresh reports"
               >
-                <span className={`text-sm ${loading ? 'animate-spin' : ''}`}>🔄</span>
+                <span className={`text-xs ${loading ? 'animate-spin' : ''}`}>🔄</span>
                 {loading ? 'Refreshing...' : 'Refresh'}
               </button>
-              <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-slate-200">
-                <div className="text-xs text-slate-500 uppercase tracking-wide">Total</div>
-                <div className="text-2xl font-bold text-slate-900">{totalReports}</div>
+              <div className="text-center">
+                <div className="text-xs text-slate-500">Total</div>
+                <div className="font-bold text-slate-900">{totalReports}</div>
               </div>
-              <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-orange-200">
-                <div className="text-xs text-orange-600 uppercase tracking-wide">Pending</div>
-                <div className="text-2xl font-bold text-orange-600">{pendingReports}</div>
+              <div className="text-center border-l border-gray-300 pl-3">
+                <div className="text-xs text-orange-600">Pending</div>
+                <div className="font-bold text-orange-600">{pendingReports}</div>
               </div>
-              <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-green-200">
-                <div className="text-xs text-green-600 uppercase tracking-wide">Resolved</div>
-                <div className="text-2xl font-bold text-green-600">{resolvedReports}</div>
+              <div className="text-center border-l border-gray-300 pl-3">
+                <div className="text-xs text-green-600">Resolved</div>
+                <div className="font-bold text-green-600">{resolvedReports}</div>
               </div>
             </div>
           </div>
 
           {/* Search and Filters */}
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-            <div className="flex flex-col lg:flex-row gap-4">
+          <div className="bg-white rounded-lg p-4 shadow-sm border border-slate-200">
+            <div className="flex flex-col lg:flex-row gap-3">
               <div className="flex-1">
                 <div className="relative">
                   <input
@@ -305,18 +327,18 @@ export default function Dashboard() {
                     placeholder="Search reports by title, description, user, or category..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    className="w-full pl-10 pr-4 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   />
-                  <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400">
+                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400">
                     🔍
                   </div>
                 </div>
               </div>
-              <div className="flex gap-3">
+              <div className="flex gap-2">
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  className="px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Status</option>
                   <option value="pending">Pending</option>
@@ -328,12 +350,12 @@ export default function Dashboard() {
         </div>
 
         {/* Table Section */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     <button
                       onClick={() => handleSort('title')}
                       className="flex items-center gap-2 hover:text-slate-900 transition-colors"
@@ -341,13 +363,13 @@ export default function Dashboard() {
                       Report {getSortIcon('title')}
                     </button>
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Reporter
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Category
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     <button
                       onClick={() => handleSort('priority')}
                       className="flex items-center gap-2 hover:text-slate-900 transition-colors"
@@ -355,10 +377,13 @@ export default function Dashboard() {
                       Priority {getSortIcon('priority')}
                     </button>
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    Fraud Detection
+                  </th>
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     <button
                       onClick={() => handleSort('createdAt')}
                       className="flex items-center gap-2 hover:text-slate-900 transition-colors"
@@ -366,7 +391,7 @@ export default function Dashboard() {
                       Created {getSortIcon('createdAt')}
                     </button>
                   </th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <th className="text-right px-4 py-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Action
                   </th>
                 </tr>
@@ -378,19 +403,19 @@ export default function Dashboard() {
                     className="hover:bg-slate-50 transition-colors group"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <div className="flex items-start gap-3">
                         <div>
-                          <h3 className="font-medium text-slate-900 group-hover:text-blue-600 transition-colors">
+                          <h3 className="font-medium text-sm text-slate-900 group-hover:text-blue-600 transition-colors">
                             {report.title}
                           </h3>
-                          <p className="text-sm text-slate-500 mt-1 line-clamp-2">
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">
                             {report.description || 'No description provided'}
                           </p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <div className="text-sm font-medium text-slate-900">
                         {report.userName || 'Anonymous'}
                       </div>
@@ -398,26 +423,29 @@ export default function Dashboard() {
                         ID: {report.id.slice(0, 8)}...
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <div className="text-sm text-slate-600 capitalize">
                         {report.category || 'Other'}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       {getPriorityBadge(report.priority)}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       {getStatusBadge(report.status)}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
+                      {getFraudBadge(report)}
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="text-sm text-slate-600">
                         {formatDate(report.createdAt)}
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-right">
+                    <td className="px-4 py-3 text-right">
                       <button
                         onClick={() => navigate(`/report/${report.id}`)}
-                        className="inline-flex items-center gap-2 px-2 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all transform hover:scale-105"
+                        className="inline-flex items-center gap-1.5 px-2 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-all transform hover:scale-105"
                       >
                         View →
                       </button>

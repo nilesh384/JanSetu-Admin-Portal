@@ -198,50 +198,43 @@ function EditAdmin() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <button
-            onClick={handleCancel}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-4 transition-colors"
-          >
-            ← Back to Admin Management
-          </button>
-          <h1 className="text-3xl font-bold text-slate-900">Edit Admin</h1>
-          <p className="text-slate-600 mt-2">Update admin details and permissions</p>
+      <div className="max-w-4xl mx-auto px-4 py-2">
+        {/* Compact Header */}
+        <div className="mb-4">
+          <p className="text-s text-black mt-0">Update admin details and permissions</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Admin Info Card */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Admin Information</h3>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-900 mb-3">Admin Information</h3>
               
               {admin && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <div>
-                    <span className="text-sm text-slate-500">Email</span>
-                    <p className="font-medium text-slate-900">{admin.email}</p>
+                    <span className="text-xs text-slate-500">Email</span>
+                    <p className="text-sm font-medium text-slate-900">{admin.email}</p>
                   </div>
                   <div>
-                    <span className="text-sm text-slate-500">Admin ID</span>
-                    <p className="font-medium text-slate-900 font-mono text-xs">{admin.id}</p>
+                    <span className="text-xs text-slate-500">Admin ID</span>
+                    <p className="text-xs font-medium text-slate-900 font-mono">{admin.id}</p>
                   </div>
                   <div>
-                    <span className="text-sm text-slate-500">Created</span>
-                    <p className="font-medium text-slate-900">
+                    <span className="text-xs text-slate-500">Created</span>
+                    <p className="text-sm font-medium text-slate-900">
                       {admin.createdAt ? new Date(admin.createdAt).toLocaleDateString() : 'N/A'}
                     </p>
                   </div>
                   <div>
-                    <span className="text-sm text-slate-500">Last Login</span>
-                    <p className="font-medium text-slate-900">
+                    <span className="text-xs text-slate-500">Last Login</span>
+                    <p className="text-sm font-medium text-slate-900">
                       {admin.lastLogin ? new Date(admin.lastLogin).toLocaleDateString() : 'Never'}
                     </p>
                   </div>
                   <div>
-                    <span className="text-sm text-slate-500">Current Status</span>
-                    <div className="mt-1">
+                    <span className="text-xs text-slate-500">Current Status</span>
+                    <div className="mt-0.5">
                       <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${
                         admin.isActive !== false 
                           ? 'bg-green-100 text-green-800' 
@@ -261,14 +254,14 @@ function EditAdmin() {
 
           {/* Edit Form */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
               {/* Form Header */}
               
 
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Full Name */}
                 <div>
-                  <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="fullName" className="block text-xs font-medium text-slate-700 mb-1">
                     Full Name *
                   </label>
                   <input
@@ -278,7 +271,7 @@ function EditAdmin() {
                     value={formData.fullName}
                     onChange={handleInputChange}
                     required
-                    className={`w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    className={`w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
                       formData.fullName ? 'bg-blue-50' : ''
                     }`}
                     placeholder={admin?.fullName ? `Current: ${admin.fullName}` : "Enter full name"}
@@ -290,7 +283,7 @@ function EditAdmin() {
 
                 {/* Department */}
                 <div>
-                  <label htmlFor="department" className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="department" className="block text-xs font-medium text-slate-700 mb-1">
                     Department *
                   </label>
                   <input
@@ -301,7 +294,7 @@ function EditAdmin() {
                     onChange={handleInputChange}
                     required
                     list="department-options"
-                    className={`w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    className={`w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
                       formData.department ? 'bg-blue-50' : ''
                     }`}
                     placeholder={admin?.department ? `Current: ${admin.department}` : "Select or type a department"}
@@ -330,7 +323,7 @@ function EditAdmin() {
 
                 {/* Role */}
                 <div>
-                  <label htmlFor="role" className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="role" className="block text-xs font-medium text-slate-700 mb-1">
                     Role *
                   </label>
                   <select
@@ -339,7 +332,7 @@ function EditAdmin() {
                     value={formData.role}
                     onChange={handleInputChange}
                     required
-                    className={`w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    className={`w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
                       formData.role ? 'bg-blue-50' : ''
                     }`}
                   >
@@ -356,18 +349,18 @@ function EditAdmin() {
                 </div>
 
                 {/* Active Status */}
-                <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
                   <div className="flex items-center justify-between">
                     <div>
-                      <label className="text-sm font-medium text-slate-700">
+                      <label className="text-xs font-medium text-slate-700">
                         Administrator Status
                       </label>
-                      <p className="text-xs text-slate-500 mt-1">
+                      <p className="text-xs text-slate-500 mt-0.5">
                         Toggle to activate or deactivate this administrator's access
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`text-sm font-medium ${formData.isActive ? 'text-green-600' : 'text-red-600'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-medium ${formData.isActive ? 'text-green-600' : 'text-red-600'}`}>
                         {formData.isActive ? '✅ Active' : '❌ Inactive'}
                       </span>
                       <label className="relative inline-flex items-center cursor-pointer">
@@ -378,38 +371,38 @@ function EditAdmin() {
                           onChange={handleInputChange}
                           className="sr-only peer"
                         />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                       </label>
                     </div>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-xs text-slate-500 mt-0.5">
                     Unchecking this will deactivate the admin account
                   </p>
                 </div>
 
                 {/* Error and Success Messages */}
                 {error && (
-                  <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
+                  <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded-lg text-sm">
                     {error}
                   </div>
                 )}
 
                 {success && (
-                  <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg">
+                  <div className="bg-green-100 border border-green-400 text-green-700 px-3 py-2 rounded-lg text-sm">
                     {success}
                   </div>
                 )}
 
                 {/* Form Actions */}
-                <div className="flex gap-4 pt-4">
+                <div className="flex gap-2 pt-3">
                   <button
                     type="submit"
                     disabled={saving}
-                    className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                    className="flex-1 bg-blue-600 text-white py-2 px-4 text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                   >
                     {saving ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span className="flex items-center justify-center gap-1.5">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
                         Updating...
                       </span>
                     ) : (
@@ -421,7 +414,7 @@ function EditAdmin() {
                     type="button"
                     onClick={handleCancel}
                     disabled={saving}
-                    className="px-6 py-3 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                    className="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                   >
                     Cancel
                   </button>

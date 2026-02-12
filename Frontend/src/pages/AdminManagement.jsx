@@ -268,56 +268,39 @@ export default function AdminManagement() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-slate-100">
-      <div className="max-w-7xl mx-auto px-6 py-0">
-        {/* Header Section */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-4">
+      <div className="max-w-7xl mx-auto px-4 py-0">
+        {/* Compact Header with Inline Stats */}
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-3">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                JanSetu Admin Management
+              <h1 className="text-2xl font-bold text-gray-900">
+                Admin Management
               </h1>
-              <p className="text-gray-600 mt-1">
-                Manage and monitor administrative team members
-                {(searchTerm ||
-                  roleFilter !== "all" ||
-                  departmentFilter !== "all") && (
-                  <span className="ml-2 text-sm font-medium text-slate-600">
-                    • {filteredAdmins.length} of {admins.length} results shown
-                  </span>
-                )}
+              <p className="text-xs text-gray-500 mt-0.5">
+                {(searchTerm || roleFilter !== "all" || departmentFilter !== "all") 
+                  ? `${filteredAdmins.length} of ${admins.length} results` 
+                  : "Manage administrative team members"}
               </p>
             </div>
-            <div className="flex gap-4">
-              <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-200">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">
-                  Total
-                </div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {totalAdmins}
-                </div>
+            <div className="flex items-center gap-4 text-sm">
+              <div className="text-center">
+                <div className="text-gray-500 text-xs">Total</div>
+                <div className="font-bold text-gray-900">{totalAdmins}</div>
               </div>
-              <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-emerald-200">
-                <div className="text-xs text-emerald-600 uppercase tracking-wide">
-                  Active
-                </div>
-                <div className="text-2xl font-bold text-emerald-600">
-                  {activeAdmins}
-                </div>
+              <div className="text-center border-l border-gray-300 pl-4">
+                <div className="text-emerald-600 text-xs">Active</div>
+                <div className="font-bold text-emerald-600">{activeAdmins}</div>
               </div>
-              <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-200">
-                <div className="text-xs text-gray-600 uppercase tracking-wide">
-                  Super Admins
-                </div>
-                <div className="text-2xl font-bold text-gray-600">
-                  {superAdmins}
-                </div>
+              <div className="text-center border-l border-gray-300 pl-4">
+                <div className="text-gray-600 text-xs">Super</div>
+                <div className="font-bold text-gray-600">{superAdmins}</div>
               </div>
             </div>
           </div>
 
           {/* Search and Filters */}
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-            <div className="flex flex-col lg:flex-row gap-4">
+          <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
+            <div className="flex flex-col lg:flex-row gap-3">
               <div className="flex-1">
                 <div className="relative">
                   <input
@@ -325,18 +308,18 @@ export default function AdminManagement() {
                     placeholder="Search admins by name, email, department, or role..."
                     value={searchTerm}
                     onChange={handleSearchChange}
-                    className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all"
+                    className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all"
                   />
-                  <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400">
+                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
                     🔍
                   </div>
                 </div>
               </div>
-              <div className="flex gap-3">
+              <div className="flex gap-2">
                 <select
                   value={roleFilter}
                   onChange={handleRoleFilterChange}
-                  className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent bg-white"
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Roles</option>
                   <option value="super_admin">Super Admin</option>
@@ -346,7 +329,7 @@ export default function AdminManagement() {
                 <select
                   value={departmentFilter}
                   onChange={handleDepartmentFilterChange}
-                  className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent bg-white"
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent bg-white"
                 >
                   <option value="all">All Departments</option>
                   <option value="it">IT</option>
@@ -391,7 +374,7 @@ export default function AdminManagement() {
                     </div>
                   </th>
                   <th
-                    className="text-left px-6 py-4 text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                    className="text-left px-4 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                     onClick={() => handleSort("department")}
                   >
                     <div className="flex items-center gap-1">
@@ -404,7 +387,7 @@ export default function AdminManagement() {
                     </div>
                   </th>
                   <th
-                    className="text-left px-6 py-4 text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                    className="text-left px-4 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                     onClick={() => handleSort("lastLogin")}
                   >
                     <div className="flex items-center gap-1">
@@ -416,10 +399,10 @@ export default function AdminManagement() {
                       )}
                     </div>
                   </th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                  <th className="text-right px-4 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Action
                   </th>
                 </tr>
@@ -432,29 +415,29 @@ export default function AdminManagement() {
                     className="hover:bg-gray-50 transition-colors cursor-pointer group"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-slate-600 to-slate-800 rounded-full flex items-center justify-center text-white font-semibold">
+                        <div className="w-8 h-8 bg-gradient-to-br from-slate-600 to-slate-800 rounded-full flex items-center justify-center text-white font-semibold text-sm">
                           {admin.fullName?.charAt(0).toUpperCase() || "A"}
                         </div>
                         <div>
-                          <div className="font-medium text-gray-900 group-hover:text-slate-600 transition-colors">
+                          <div className="font-medium text-sm text-gray-900 group-hover:text-slate-600 transition-colors">
                             {admin.fullName}
                           </div>
-                          <div className="text-sm text-gray-500">
+                          <div className="text-xs text-gray-500">
                             {admin.email}
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border ${getRoleColor(
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-full border ${getRoleColor(
                           admin.role
                         )}`}
                       >
                         <span
-                          className={`w-2 h-2 rounded-full ${
+                          className={`w-1.5 h-1.5 rounded-full ${
                             admin.role?.toLowerCase() === "super_admin"
                               ? "bg-gray-600"
                               : admin.role?.toLowerCase() === "admin"
@@ -466,39 +449,39 @@ export default function AdminManagement() {
                           admin.role?.slice(1) || "Viewer"}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <span className="text-sm text-gray-900 capitalize">
                         {admin.department || "N/A"}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <span className="text-sm text-gray-600">
                         {formatDate(admin.lastLogin)}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-full ${
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-full ${
                           admin.lastLogin
                             ? "bg-emerald-100 text-emerald-800"
                             : "bg-amber-100 text-amber-800"
                         }`}
                       >
                         <span
-                          className={`w-2 h-2 rounded-full ${
+                          className={`w-1.5 h-1.5 rounded-full ${
                             admin.lastLogin ? "bg-emerald-600" : "bg-amber-600"
                           }`}
                         ></span>
                         {admin.lastLogin ? "Active" : "Inactive"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-4 py-3 text-right">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleAdminClick(admin);
                         }}
-                        className="bg-blue-700 text-white px-4 py-2 rounded-lg hover:bg-blue-900 transition-colors text-sm font-medium"
+                        className="bg-blue-700 text-white px-3 py-1.5 rounded-lg hover:bg-blue-900 transition-colors text-xs font-medium"
                       >
                         View Details
                       </button>

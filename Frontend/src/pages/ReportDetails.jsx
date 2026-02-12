@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import { getReportById, resolveReport, getReportSocialStats, getPostComments, getFieldAdmins, assignReportToAdmin } from "../api/user";
+import { getReportById, resolveReport, getReportSocialStats, getPostComments, getFieldAdmins, assignReportToAdmin, deleteReport } from "../api/user";
 import { useAuth } from "../components/AuthContext";
+import { detectFraud, getFraudBadgeStyle } from "../utils/fraudDetection";
 import 'leaflet/dist/leaflet.css';
 
 export default function ReportDetails() {
@@ -36,26 +37,81 @@ export default function ReportDetails() {
   const [assigning, setAssigning] = useState(false);
   const [loadingAdmins, setLoadingAdmins] = useState(false);
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      navigate("/", { replace: true });
-      return;
-    }
+  // Delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
 
-    if (id) {
-      fetchReportDetails();
-    }
-  }, [isAuthenticated, id]);
+  // Fraud detection state
+  const [fraudAnalysis, setFraudAnalysis] = useState(null);
 
-  const fetchReportDetails = async () => {
+  // Fetch social stats with fraud detection (accepts reportData as parameter)
+  const fetchSocialStats = useCallback(async (reportData) => {
+    try {
+      setLoadingSocialStats(true);
+      const result = await getReportSocialStats(id);
+
+      if (result.success) {
+        setSocialStats(result.data);
+        // Perform fraud detection analysis
+        if (reportData) {
+          const analysis = detectFraud(reportData, result.data);
+          setFraudAnalysis(analysis);
+        }
+      } else {
+        console.log("No social stats found for this report:", result.message);
+        // Set default stats if no social post exists
+        const defaultStats = {
+          reportId: id,
+          hasSocialPost: false,
+          upvotes: 0,
+          downvotes: 0,
+          totalScore: 0,
+          commentCount: 0,
+          shareCount: 0,
+          viewCount: 0
+        };
+        setSocialStats(defaultStats);
+        // Perform fraud detection with default stats
+        if (reportData) {
+          const analysis = detectFraud(reportData, defaultStats);
+          setFraudAnalysis(analysis);
+        }
+      }
+    } catch (err) {
+      console.error("Social stats fetch error:", err);
+      // Set default stats on error
+      const defaultStats = {
+        reportId: id,
+        hasSocialPost: false,
+        upvotes: 0,
+        downvotes: 0,
+        totalScore: 0,
+        commentCount: 0,
+        shareCount: 0,
+        viewCount: 0
+      };
+      setSocialStats(defaultStats);
+      // Perform fraud detection with default stats
+      if (reportData) {
+        const analysis = detectFraud(reportData, defaultStats);
+        setFraudAnalysis(analysis);
+      }
+    } finally {
+      setLoadingSocialStats(false);
+    }
+  }, [id]);
+
+  // Fetch report details
+  const fetchReportDetails = useCallback(async () => {
     try {
       setLoading(true);
       const result = await getReportById(id);
 
       if (result.success) {
         setReport(result.data);
-        // Fetch social stats after successful report fetch
-        fetchSocialStats();
+        // Fetch social stats after successful report fetch, passing report data
+        fetchSocialStats(result.data);
       } else {
         setError(result.message || "Report not found");
       }
@@ -65,46 +121,18 @@ export default function ReportDetails() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, fetchSocialStats]);
 
-  const fetchSocialStats = async () => {
-    try {
-      setLoadingSocialStats(true);
-      const result = await getReportSocialStats(id);
-
-      if (result.success) {
-        setSocialStats(result.data);
-      } else {
-        console.log("No social stats found for this report:", result.message);
-        // Set default stats if no social post exists
-        setSocialStats({
-          reportId: id,
-          hasSocialPost: false,
-          upvotes: 0,
-          downvotes: 0,
-          totalScore: 0,
-          commentCount: 0,
-          shareCount: 0,
-          viewCount: 0
-        });
-      }
-    } catch (err) {
-      console.error("Social stats fetch error:", err);
-      // Set default stats on error
-      setSocialStats({
-        reportId: id,
-        hasSocialPost: false,
-        upvotes: 0,
-        downvotes: 0,
-        totalScore: 0,
-        commentCount: 0,
-        shareCount: 0,
-        viewCount: 0
-      });
-    } finally {
-      setLoadingSocialStats(false);
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate("/", { replace: true });
+      return;
     }
-  };
+
+    if (id) {
+      fetchReportDetails();
+    }
+  }, [isAuthenticated, id, navigate, fetchReportDetails]);
 
   const fetchComments = async () => {
     if (!socialStats?.socialPostId) {
@@ -259,7 +287,7 @@ export default function ReportDetails() {
       const next = [...prev];
       const removed = next.splice(index, 1);
       if (removed && removed[0]) {
-        try { URL.revokeObjectURL(removed[0]); } catch (e) { /* ignore */ }
+        try { URL.revokeObjectURL(removed[0]); } catch (e) { console.error(e); }
       }
       return next;
     });
@@ -404,6 +432,41 @@ export default function ReportDetails() {
     setSelectedAdminId("");
   };
 
+  const handleDeleteReport = async () => {
+    if (!deleteReason.trim()) {
+      alert("Please provide a reason for deleting this report.");
+      return;
+    }
+
+    if (!window.confirm("Are you absolutely sure you want to delete this report? This action cannot be undone.")) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      const result = await deleteReport(id, adminData.id, deleteReason);
+
+      if (result.success) {
+        alert("Report deleted successfully");
+        // Set flag that reports should be refreshed
+        sessionStorage.setItem('shouldRefreshReports', 'true');
+        navigate("/dashboard", { replace: true });
+      } else {
+        alert(`Failed to delete report: ${result.message}`);
+      }
+    } catch (error) {
+      console.error("Error deleting report:", error);
+      alert("Failed to delete report. Please try again.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const closeDeleteModal = () => {
+    setShowDeleteModal(false);
+    setDeleteReason("");
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
@@ -474,7 +537,7 @@ export default function ReportDetails() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button 
-                onClick={() => navigate("/dashboard")}
+                onClick={() => navigate("/reports")}
                 className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
                 title="Back to Dashboard"
               >
@@ -499,6 +562,28 @@ export default function ReportDetails() {
             <div className="flex items-center gap-3">
               {getPriorityBadge(report.priority)}
               {getStatusBadge(report.status)}
+              {fraudAnalysis && (fraudAnalysis.isFraud || fraudAnalysis.score >= 15) && (() => {
+                const style = getFraudBadgeStyle(fraudAnalysis.severity);
+                return (
+                  <div 
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold whitespace-nowrap border-2 ${style.bg} ${style.text} ${style.border}`}
+                    title={`Fraud Score: ${fraudAnalysis.score}\\n${fraudAnalysis.reasons.join('\\n')}`}
+                  >
+                    <div className={`w-2 h-2 rounded-full ${style.dot}`}></div>
+                    <span>{style.icon} {style.label}</span>
+                  </div>
+                );
+              })()}
+              {fraudAnalysis && fraudAnalysis.isFraud && (
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center gap-2"
+                  title="Delete fraudulent report"
+                >
+                  <span>🗑️</span>
+                  Delete Report
+                </button>
+              )}
               {!report.isResolved && (
                 <>
                   <button
@@ -765,6 +850,70 @@ export default function ReportDetails() {
                 </div>
               </div>
             </div>
+
+            {/* Fraud Detection Analysis */}
+            {fraudAnalysis && (fraudAnalysis.isFraud || fraudAnalysis.score >= 15) && (
+              <div className={`bg-white rounded-xl shadow-sm border-2 p-6 ${
+                fraudAnalysis.severity === 'critical' ? 'border-red-300 bg-red-50' :
+                fraudAnalysis.severity === 'high' ? 'border-orange-300 bg-orange-50' :
+                fraudAnalysis.severity === 'medium' ? 'border-yellow-300 bg-yellow-50' :
+                'border-blue-300 bg-blue-50'
+              }`}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                    {getFraudBadgeStyle(fraudAnalysis.severity).icon} Fraud Detection
+                  </h3>
+                  <div className={`px-3 py-1 rounded-full text-xl font-bold ${
+                    fraudAnalysis.score >= 70 ? 'bg-red-600 text-white' :
+                    fraudAnalysis.score >= 50 ? 'bg-orange-600 text-white' :
+                    fraudAnalysis.score >= 30 ? 'bg-yellow-600 text-white' :
+                    'bg-blue-600 text-white'
+                  }`}>
+                    {fraudAnalysis.score}
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className={`p-3 rounded-lg ${
+                    fraudAnalysis.severity === 'critical' ? 'bg-red-100' :
+                    fraudAnalysis.severity === 'high' ? 'bg-orange-100' :
+                    fraudAnalysis.severity === 'medium' ? 'bg-yellow-100' :
+                    'bg-blue-100'
+                  }`}>
+                    <p className="text-sm font-medium text-slate-900 mb-2">
+                      {fraudAnalysis.isFraud ? '⚠️ FRAUD DETECTED' : 'ℹ️ Suspicious Activity'}
+                    </p>
+                    <p className="text-xs text-slate-700 leading-relaxed">
+                      {fraudAnalysis.recommendation}
+                    </p>
+                  </div>
+
+                  {fraudAnalysis.reasons.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium text-slate-900 mb-2">Detection Reasons:</p>
+                      <ul className="space-y-1">
+                        {fraudAnalysis.reasons.map((reason, index) => (
+                          <li key={index} className="text-xs text-slate-700 flex items-start gap-2">
+                            <span className="text-red-500 mt-0.5">•</span>
+                            <span className="flex-1">{reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {fraudAnalysis.isFraud && (
+                    <button
+                      onClick={() => setShowDeleteModal(true)}
+                      className="w-full mt-4 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center justify-center gap-2"
+                    >
+                      <span>🗑️</span>
+                      Delete Fraudulent Report
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Community Engagement Stats */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
@@ -1318,6 +1467,135 @@ export default function ReportDetails() {
                   ) : (
                     <span className="flex items-center gap-2">
                       👤 Assign Report
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-200 bg-red-50">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-red-900 flex items-center gap-2">
+                  🗑️ Delete Report
+                </h2>
+                <button
+                  onClick={closeDeleteModal}
+                  className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                >
+                  <svg className="w-6 h-6 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {/* Warning Message */}
+              <div className="bg-red-100 border-2 border-red-300 rounded-lg p-4 mb-6">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">⚠️</span>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-red-900 mb-2">Warning: This action cannot be undone!</h3>
+                    <p className="text-red-800 text-sm">
+                      You are about to permanently delete this report from the database. 
+                      This will remove all associated data including images, comments, and engagement metrics.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Fraud Analysis Summary */}
+              {fraudAnalysis && fraudAnalysis.isFraud && (
+                <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 mb-6">
+                  <h3 className="font-semibold text-yellow-900 mb-2">Fraud Detection Summary</h3>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-yellow-800">Fraud Score:</span>
+                      <span className="font-bold text-yellow-900">{fraudAnalysis.score}/100</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-yellow-800">Severity:</span>
+                      <span className="font-bold text-yellow-900 capitalize">{fraudAnalysis.severity}</span>
+                    </div>
+                    <div className="pt-2 border-t border-yellow-300">
+                      <p className="text-xs text-yellow-800">
+                        {fraudAnalysis.reasons.slice(0, 2).join(' • ')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Report Details */}
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-6">
+                <h3 className="font-semibold text-slate-900 mb-3">Report Details</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Title:</span>
+                    <span className="text-slate-900 font-medium text-right ml-4">{report.title}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">ID:</span>
+                    <span className="text-slate-900 font-mono text-xs">{report.id}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Posted:</span>
+                    <span className="text-slate-900">{formatDate(report.createdAt)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Category:</span>
+                    <span className="text-slate-900 capitalize">{report.category || 'Other'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reason Input */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Reason for Deletion <span className="text-red-600">*</span>
+                </label>
+                <textarea
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  placeholder="Please provide a detailed reason for deleting this report (e.g., 'Confirmed fraud: Bot-generated engagement with spam content')"
+                  className="w-full px-4 py-3 border-2 border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                  rows={4}
+                  required
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  This reason will be logged for audit purposes and cannot be changed later.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={closeDeleteModal}
+                  disabled={deleting}
+                  className="flex-1 px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition-colors font-medium disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteReport}
+                  disabled={deleting || !deleteReason.trim()}
+                  className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {deleting ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Deleting...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      🗑️ Confirm Delete
                     </span>
                   )}
                 </button>

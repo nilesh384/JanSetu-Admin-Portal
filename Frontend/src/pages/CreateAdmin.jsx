@@ -123,6 +123,7 @@ function CreateAdmin() {
         setError(result.message || 'Failed to create admin');
       }
     } catch (err) {
+      console.error('Error creating admin:', err);
       setError('Failed to create admin. Please try again.');
     } finally {
       setLoading(false);
@@ -145,9 +146,7 @@ function CreateAdmin() {
     setSuccess('');
   };
 
-  const handleModalClose = () => {
-    navigate('/admin-management');
-  };
+  
 
   // Permission Denied Modal
   if (showPermissionModal) {
@@ -177,13 +176,7 @@ function CreateAdmin() {
             </div>
           </div>
 
-          {/* Action Button */}
-          <button
-            onClick={handleModalClose}
-            className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-md hover:shadow-lg"
-          >
-            Go Back to Admin Management
-          </button>
+          
         </div>
       </div>
     );
@@ -191,43 +184,33 @@ function CreateAdmin() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <div className="max-w-4xl mx-auto px-6 -mt-24">
-        {/* Header */}
-        <div className="mb-8">
-          <button
-            onClick={handleCancel}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-700 mb-4 transition-colors"
-          >
-            ← Back to Admin Management
-          </button>
-          <h1 className="text-3xl font-bold text-slate-900">Create New Admin</h1>
-          <p className="text-slate-600 mt-2">Add a new admin to the system</p>
-        </div>
+      <div className="max-w-4xl mx-auto px-4 mt-4">
+        
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Instructions Card */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Instructions</h3>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-900 mb-3">Instructions</h3>
               
-              <div className="space-y-4 text-sm text-slate-600">
+              <div className="space-y-3 text-xs text-slate-600">
                 <div>
-                  <h4 className="font-medium text-slate-700 mb-1">Email Requirements</h4>
-                  <p>Must be a valid email address. This will be used for login and notifications.</p>
+                  <h4 className="font-medium text-slate-700 mb-0.5">Email Requirements</h4>
+                  <p>Valid email for login and notifications.</p>
                 </div>
                 
                 <div>
-                  <h4 className="font-medium text-slate-700 mb-1">Role Permissions</h4>
-                  <ul className="space-y-1 ml-3">
-                    <li>• <span className="font-medium">Viewer:</span> Read-only access</li>
-                    <li>• <span className="font-medium">Admin:</span> Manage reports and users</li>
-                    <li>• <span className="font-medium">Super Admin:</span> Full system access</li>
+                  <h4 className="font-medium text-slate-700 mb-0.5">Role Permissions</h4>
+                  <ul className="space-y-0.5 ml-3">
+                    <li>• <span className="font-medium">Viewer:</span> Read-only</li>
+                    <li>• <span className="font-medium">Admin:</span> Manage reports</li>
+                    <li>• <span className="font-medium">Super Admin:</span> Full access</li>
                   </ul>
                 </div>
                 
                 <div>
-                  <h4 className="font-medium text-slate-700 mb-1">After Creation</h4>
-                  <p>The new admin will receive a welcome email with login instructions.</p>
+                  <h4 className="font-medium text-slate-700 mb-0.5">After Creation</h4>
+                  <p>Admin receives welcome email.</p>
                 </div>
               </div>
             </div>
@@ -235,11 +218,11 @@ function CreateAdmin() {
 
           {/* Create Form */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Email */}
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="email" className="block text-xs font-medium text-slate-700 mb-1">
                     Email Address *
                   </label>
                   <input
@@ -248,7 +231,7 @@ function CreateAdmin() {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
                       errors.email ? 'border-red-300 bg-red-50' : 'border-slate-300'
                     }`}
                     placeholder="admin@example.com"
@@ -260,7 +243,7 @@ function CreateAdmin() {
 
                 {/* Full Name */}
                 <div>
-                  <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="fullName" className="block text-xs font-medium text-slate-700 mb-1">
                     Full Name *
                   </label>
                   <input
@@ -269,7 +252,7 @@ function CreateAdmin() {
                     name="fullName"
                     value={formData.fullName}
                     onChange={handleInputChange}
-                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
                       errors.fullName ? 'border-red-300 bg-red-50' : 'border-slate-300'
                     }`}
                     placeholder="John Doe"
@@ -281,7 +264,7 @@ function CreateAdmin() {
 
                 {/* Department */}
                 <div>
-                  <label htmlFor="department" className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="department" className="block text-xs font-medium text-slate-700 mb-1">
                     Department *
                   </label>
                   <input
@@ -291,7 +274,7 @@ function CreateAdmin() {
                     value={formData.department}
                     onChange={handleInputChange}
                     list="department-options"
-                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
                       errors.department ? 'border-red-300 bg-red-50' : 'border-slate-300'
                     }`}
                     placeholder="Select or type a department"
@@ -320,7 +303,7 @@ function CreateAdmin() {
 
                 {/* Role */}
                 <div>
-                  <label htmlFor="role" className="block text-sm font-medium text-slate-700 mb-2">
+                  <label htmlFor="role" className="block text-xs font-medium text-slate-700 mb-1">
                     Role *
                   </label>
                   <select
@@ -328,7 +311,7 @@ function CreateAdmin() {
                     name="role"
                     value={formData.role}
                     onChange={handleInputChange}
-                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
                       errors.role ? 'border-red-300 bg-red-50' : 'border-slate-300'
                     }`}
                   >
@@ -344,28 +327,28 @@ function CreateAdmin() {
 
                 {/* Error and Success Messages */}
                 {error && (
-                  <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
+                  <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded-lg text-sm">
                     {error}
                   </div>
                 )}
 
                 {success && (
-                  <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg">
+                  <div className="bg-green-100 border border-green-400 text-green-700 px-3 py-2 rounded-lg text-sm">
                     {success}
                   </div>
                 )}
 
                 {/* Form Actions */}
-                <div className="flex gap-4 pt-4">
+                <div className="flex gap-2 pt-3">
                   <button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                    className="flex-1 bg-blue-600 text-white py-2 px-4 text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                   >
                     {loading ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        Creating Admin...
+                      <span className="flex items-center justify-center gap-1.5">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                        Creating...
                       </span>
                     ) : (
                       'Create Admin'
@@ -376,7 +359,7 @@ function CreateAdmin() {
                     type="button"
                     onClick={resetForm}
                     disabled={loading}
-                    className="px-6 py-3 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                    className="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                   >
                     Reset
                   </button>
@@ -385,7 +368,7 @@ function CreateAdmin() {
                     type="button"
                     onClick={handleCancel}
                     disabled={loading}
-                    className="px-6 py-3 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                    className="px-4 py-2 text-sm border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                   >
                     Cancel
                   </button>

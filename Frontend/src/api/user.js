@@ -225,6 +225,28 @@ export const resolveReport = async (reportId, adminId, adminRole, resolutionNote
     }
 };
 
+// Delete a report (Admin only - for fraud/spam reports)
+export const deleteReport = async (reportId, adminId, reason = '') => {
+    try {
+        const response = await axios.delete(`${API_BASE_URL}/reports/${reportId}`, {
+            data: {
+                adminId,
+                reason
+            }
+        });
+
+        return {
+            success: true,
+            message: response.data.message || "Report deleted successfully"
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to delete report"
+        };
+    }
+};
+
 // Get simplified coordinates for all reports (used by maps)
 export const getAllReportCoords = async (adminId, limit = 1000) => {
     // The backend in this workspace does not expose a global /reports/coords endpoint.
@@ -367,6 +389,36 @@ export const getAdminActivityLogs = async (requesterRole, filters = {}) => {
         return {
             success: false,
             message: error.response?.data?.message || "Failed to fetch admin activity logs"
+        };
+    }
+};
+
+// Get deletion audit logs (Super Admin only)
+export const getDeletionAuditLogs = async (adminId, adminRole, filters = {}) => {
+    try {
+        const queryParams = new URLSearchParams();
+        
+        queryParams.append('adminId', adminId);
+        queryParams.append('adminRole', adminRole);
+        
+        if (filters.reportId) queryParams.append('reportId', filters.reportId);
+        if (filters.limit) queryParams.append('limit', filters.limit);
+        if (filters.offset) queryParams.append('offset', filters.offset);
+
+        const url = `${API_BASE_URL}/reports/audit-logs?${queryParams.toString()}`;
+        
+        const response = await axios.get(url);
+
+        return {
+            success: true,
+            data: response.data.data,
+            pagination: response.data.pagination,
+            message: response.data.message
+        };
+    } catch (error) {
+        return {
+            success: false,
+            message: error.response?.data?.message || "Failed to fetch deletion audit logs"
         };
     }
 };
