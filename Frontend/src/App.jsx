@@ -8,6 +8,7 @@ import AdminManagement from "./pages/AdminManagement";
 import EditAdmin from "./pages/EditAdmin";
 import CreateAdmin from "./pages/CreateAdmin";
 import ActivityLogs from "./pages/ActivityLogs";
+import AuditLogs from "./pages/AuditLogs";
 import Reports from "./pages/Reports";
 import ReportDetails from "./pages/ReportDetails";
 import MapOverview from "./pages/MapOverview";
@@ -73,6 +74,16 @@ function App() {
               <PrivateRoute>
                 <Layout>
                   <ActivityLogs />
+                </Layout>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/audit-logs"
+            element={
+              <PrivateRoute>
+                <Layout>
+                  <AuditLogs />
                 </Layout>
               </PrivateRoute>
             }
